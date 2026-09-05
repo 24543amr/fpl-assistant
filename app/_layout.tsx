@@ -116,6 +116,9 @@ export default function RootLayout() {
         <Stack.Screen name="squad" />
         <Stack.Screen name="news" />
         <Stack.Screen name="ai" />
+        <Stack.Screen name="leagues" />
+        <Stack.Screen name="league-detail" />
+        <Stack.Screen name="player-switch" />
         <Stack.Screen name="profile" />
       </Stack>
     </>

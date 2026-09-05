@@ -1,7 +1,7 @@
 {
   "name": "fpl-assistant",
   "version": "1.0.0",
-  "main": "index.ts",
+  "main": "expo-router/entry",
   "dependencies": {
     "@expo-google-fonts/archivo-narrow": "^0.4.2",
     "@expo-google-fonts/cairo": "^0.4.2",
@@ -9,6 +9,7 @@
     "@expo-google-fonts/ibm-plex-sans-arabic": "^0.4.2",
     "@expo-google-fonts/jetbrains-mono": "^0.4.1",
     "@expo/vector-icons": "^15.0.3",
+    "@google/generative-ai": "^0.24.1",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-native-cookies/cookies": "^6.2.1",
     "babel-preset-expo": "~54.0.10",
@@ -29,6 +30,7 @@
   "devDependencies": {
     "@babel/core": "^7.24.0",
     "@types/react": "~19.1.10",
+    "react-refresh": "^0.18.0",
     "typescript": "^5.3.3"
   },
   "scripts": {

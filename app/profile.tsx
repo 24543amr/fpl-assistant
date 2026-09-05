@@ -1,16 +1,103 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, Alert, Platform } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  ScrollView,
+  ActivityIndicator,
+  Alert,
+  Platform,
+  ToastAndroid,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { Colors, FontSizes, Spacing, Radii } from '@/constants/theme';
-import { getStoredFplToken, getStoredTeamId, decodeJwtPayload, isTokenExpiringSoon } from '@/utils/storage';
+import {
+  getStoredFplToken,
+  getStoredTeamId,
+  decodeJwtPayload,
+  isTokenExpiringSoon,
+  clearStoredFplToken,
+} from '@/utils/storage';
 import { refreshFplToken, fetchMyTeamSquad } from '@/api/fpl';
+import AppHeader from '@/components/AppHeader';
+
+// ─── i18n Strings ────────────────────────────────────────────────────────────
+const STRINGS = {
+  en: {
+    activeLang: 'EN',
+    toggleLang: 'عربي',
+    title: 'Manager Profile & Settings',
+    sub: 'Automatic OIDC Token Refresh Diagnostics & Session Control',
+    sessionCardTitle: 'Current Session Status',
+    accessToken: 'Access Token:',
+    refreshToken: 'Refresh Token:',
+    expiration: 'Expiration:',
+    status: 'Status:',
+    activeValid: 'Active & Valid',
+    expiringSoon: 'Expiring soon / Expired',
+    noActiveTokens: 'No active OAuth tokens found in storage. Log in via Connect Team screen.',
+    btnTest1: '1. Test Token Refresh Endpoint',
+    btnTest2: '2. Test Proactive Launch Refresh',
+    btnTest3: '3. Test 401 Silent Retry Flow',
+    btnBack: '← Back to Home',
+    btnLogOut: 'Log Out',
+    logoutDialogTitle: 'Log out?',
+    logoutDialogMsg: "You'll need to log in again to access your squad.",
+    cancel: 'Cancel',
+    loggedOutSuccess: 'Logged out successfully',
+    execLogTitle: 'Execution Log',
+  },
+  ar: {
+    activeLang: 'عربي',
+    toggleLang: 'EN',
+    title: 'الملف الشخصي والإعدادات',
+    sub: 'تشخيص تجديد توكنات OIDC التلقائي والتحكم بالجلسة',
+    sessionCardTitle: 'حالة الجلسة الحالية',
+    accessToken: 'توكن الوصول:',
+    refreshToken: 'توكن التحديث:',
+    expiration: 'تاريخ الانتهاء:',
+    status: 'الحالة:',
+    activeValid: 'نشط وصالح',
+    expiringSoon: 'قريب الانتهاء / منتهي',
+    noActiveTokens: 'لا توجد توكنات OAuth نشطة في الذاكرة. يرجى تسجيل الدخول من شاشة ربط الفريق.',
+    btnTest1: '١. اختبار نقطة تجديد التوكن',
+    btnTest2: '٢. اختبار التجديد الاستباقي عند الفتح',
+    btnTest3: '٣. اختبار المعالجة الصامتة لخطأ 401',
+    btnBack: '← العودة للرئيسية',
+    btnLogOut: 'تسجيل الخروج',
+    logoutDialogTitle: 'تسجيل الخروج؟',
+    logoutDialogMsg: 'ستحتاج إلى تسجيل الدخول مجدداً للوصول إلى تشكيلتك.',
+    cancel: 'إلغاء',
+    loggedOutSuccess: 'تم تسجيل الخروج بنجاح',
+    execLogTitle: 'سجل العمليات',
+  },
+} as const;
 
 export default function ProfileScreen() {
   const router = useRouter();
+  const [isArabic, setIsArabic] = useState(false);
+  const lang = isArabic ? 'ar' : 'en';
+  const t = STRINGS[lang];
+  const isRTL = isArabic;
+
   const [loading, setLoading] = useState(false);
-  const [tokenInfo, setTokenInfo] = useState<{ accessPrefix?: string; refreshPrefix?: string; expDate?: string; expiringSoon?: boolean } | null>(null);
+  const [loggingOut, setLoggingOut] = useState(false);
+  const [logoutFeedback, setLogoutFeedback] = useState('');
+  const [tokenInfo, setTokenInfo] = useState<{
+    accessPrefix?: string;
+    refreshPrefix?: string;
+    expDate?: string;
+    expiringSoon?: boolean;
+  } | null>(null);
   const [testLog, setTestLog] = useState<string>('');
+
+  const headlineFont = isArabic ? 'Cairo_700' : 'ArchivoNarrow_700';
+  const bodyFont = isArabic ? 'IBMPlexSansArabic' : 'HankenGrotesk';
+  const textAlign = isRTL ? 'right' : 'left';
+  const flexDir = isRTL ? 'row-reverse' : 'row';
 
   const loadTokens = async () => {
     const tokens = await getStoredFplToken();
@@ -134,63 +221,145 @@ export default function ProfileScreen() {
     }
   };
 
+  // ── Log Out Flow ─────────────────────────────────────────────────────────────
+  const handleLogoutPress = () => {
+    Alert.alert(
+      t.logoutDialogTitle,
+      t.logoutDialogMsg,
+      [
+        {
+          text: t.cancel,
+          style: 'cancel',
+        },
+        {
+          text: t.btnLogOut,
+          style: 'destructive',
+          onPress: () => {
+            void executeLogout();
+          },
+        },
+      ],
+      { cancelable: true }
+    );
+  };
+
+  const executeLogout = async () => {
+    setLoggingOut(true);
+    setLogoutFeedback(t.loggedOutSuccess);
+    addLog('Logging out: clearing all tokens, team ID, session data, and cookies...');
+    try {
+      await clearStoredFplToken();
+      setTokenInfo(null);
+      addLog('✅ All session data and cookies cleared successfully.');
+
+      if (Platform.OS === 'android') {
+        ToastAndroid.show(t.loggedOutSuccess, ToastAndroid.SHORT);
+      }
+
+      setTimeout(() => {
+        router.replace('/connect-team');
+      }, 500);
+    } catch (err: any) {
+      console.error('[Profile] Logout error:', err);
+      router.replace('/connect-team');
+    } finally {
+      setLoggingOut(false);
+    }
+  };
+
   return (
-    <SafeAreaView style={styles.root}>
+    <View style={styles.root}>
+      {/* ── SHARED TOP HEADER WITH BACK BUTTON ── */}
+      <AppHeader
+        title={t.title}
+        isArabic={isArabic}
+        onToggleLanguage={setIsArabic}
+        showBackButton={true}
+        onBackPress={() => router.back()}
+        showAvatar={false}
+      />
+
       <ScrollView contentContainerStyle={styles.container}>
-        <Text style={styles.title}>Manager Profile & Token Refresh</Text>
-        <Text style={styles.sub}>Automatic OIDC Token Refresh Diagnostics</Text>
+        <Text style={[styles.sub, { fontFamily: bodyFont, textAlign }]}>{t.sub}</Text>
+
+        {/* ── Logout Success Banner ─────────────────────────────────── */}
+        {!!logoutFeedback && (
+          <View style={styles.feedbackBanner}>
+            <MaterialIcons name="check-circle" size={20} color={Colors.brandTeal} />
+            <Text style={styles.feedbackText}>{logoutFeedback}</Text>
+          </View>
+        )}
 
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>Current Session Status</Text>
+          <Text style={[styles.cardTitle, { textAlign }]}>{t.sessionCardTitle}</Text>
           {tokenInfo ? (
             <>
-              <Text style={styles.infoText}><Text style={styles.bold}>Access Token:</Text> {tokenInfo.accessPrefix}</Text>
-              <Text style={styles.infoText}><Text style={styles.bold}>Refresh Token:</Text> {tokenInfo.refreshPrefix}</Text>
-              <Text style={styles.infoText}><Text style={styles.bold}>Expiration:</Text> {tokenInfo.expDate}</Text>
-              <Text style={[styles.infoText, tokenInfo.expiringSoon ? styles.warnText : styles.okText]}>
-                <Text style={styles.bold}>Status:</Text> {tokenInfo.expiringSoon ? 'Expiring soon / Expired' : 'Active & Valid'}
+              <Text style={[styles.infoText, { textAlign }]}>
+                <Text style={styles.bold}>{t.accessToken}</Text> {tokenInfo.accessPrefix}
+              </Text>
+              <Text style={[styles.infoText, { textAlign }]}>
+                <Text style={styles.bold}>{t.refreshToken}</Text> {tokenInfo.refreshPrefix}
+              </Text>
+              <Text style={[styles.infoText, { textAlign }]}>
+                <Text style={styles.bold}>{t.expiration}</Text> {tokenInfo.expDate}
+              </Text>
+              <Text style={[styles.infoText, { textAlign }, tokenInfo.expiringSoon ? styles.warnText : styles.okText]}>
+                <Text style={styles.bold}>{t.status}</Text> {tokenInfo.expiringSoon ? t.expiringSoon : t.activeValid}
               </Text>
             </>
           ) : (
-            <Text style={styles.infoText}>No active OAuth tokens found in storage. Log in via Connect Team screen.</Text>
+            <Text style={[styles.infoText, { textAlign }]}>{t.noActiveTokens}</Text>
           )}
         </View>
 
         <View style={styles.buttonGroup}>
-          <TouchableOpacity style={styles.btnPrimary} disabled={loading} onPress={handleManualRefreshTest}>
-            {loading ? <ActivityIndicator color={Colors.brandPurple} /> : <Text style={styles.btnPrimaryText}>1. Test Token Refresh Endpoint</Text>}
+          <TouchableOpacity style={styles.btnPrimary} disabled={loading || loggingOut} onPress={handleManualRefreshTest}>
+            {loading ? <ActivityIndicator color={Colors.brandPurple} /> : <Text style={styles.btnPrimaryText}>{t.btnTest1}</Text>}
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.btnSecondary} disabled={loading} onPress={handleProactiveRefreshTest}>
-            <Text style={styles.btnSecondaryText}>2. Test Proactive Launch Refresh</Text>
+          <TouchableOpacity style={styles.btnSecondary} disabled={loading || loggingOut} onPress={handleProactiveRefreshTest}>
+            <Text style={styles.btnSecondaryText}>{t.btnTest2}</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.btnSecondary} disabled={loading} onPress={handle401RetryTest}>
-            <Text style={styles.btnSecondaryText}>3. Test 401 Silent Retry Flow</Text>
+          <TouchableOpacity style={styles.btnSecondary} disabled={loading || loggingOut} onPress={handle401RetryTest}>
+            <Text style={styles.btnSecondaryText}>{t.btnTest3}</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.btnBack} onPress={() => router.replace('/home')}>
-            <Text style={styles.btnBackText}>← Back to Home</Text>
+          {/* ── Log Out Button (Destructive / Outline style) ──────────── */}
+          <TouchableOpacity
+            style={styles.btnLogout}
+            disabled={loading || loggingOut}
+            onPress={handleLogoutPress}
+            activeOpacity={0.8}
+          >
+            {loggingOut ? (
+              <ActivityIndicator color={Colors.error} size="small" />
+            ) : (
+              <View style={[styles.logoutContent, { flexDirection: flexDir }]}>
+                <MaterialIcons name="logout" size={20} color={Colors.error} />
+                <Text style={styles.btnLogoutText}>{t.btnLogOut}</Text>
+              </View>
+            )}
           </TouchableOpacity>
         </View>
 
         {!!testLog && (
           <View style={styles.logCard}>
-            <Text style={styles.logTitle}>Execution Log</Text>
+            <Text style={styles.logTitle}>{t.execLogTitle}</Text>
             <ScrollView style={styles.logScroll} nestedScrollEnabled>
               <Text style={styles.logText}>{testLog}</Text>
             </ScrollView>
           </View>
         )}
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: Colors.brandPurple },
-  container: { padding: Spacing.lg, gap: Spacing.md },
-  title: { color: Colors.white, fontSize: 26, fontFamily: 'ArchivoNarrow_700' },
+  container: { padding: Spacing.lg, gap: Spacing.md, paddingBottom: 24 },
+  title: { color: Colors.white, fontSize: 26 },
   sub: { color: Colors.onSurfaceVariant, fontSize: FontSizes.bodyMd, marginBottom: 4 },
   card: { backgroundColor: Colors.surface, borderRadius: Radii.lg, padding: 16, gap: 6 },
   cardTitle: { color: Colors.brandTeal, fontSize: 16, fontWeight: '700', marginBottom: 6 },
@@ -203,10 +372,40 @@ const styles = StyleSheet.create({
   btnPrimaryText: { color: Colors.brandPurple, fontWeight: '800', fontSize: 15 },
   btnSecondary: { backgroundColor: 'rgba(255, 255, 255, 0.1)', padding: 14, borderRadius: Radii.lg, alignItems: 'center' },
   btnSecondaryText: { color: Colors.white, fontWeight: '700', fontSize: 14 },
+  btnLogout: {
+    backgroundColor: 'rgba(255, 180, 171, 0.08)',
+    borderWidth: 1.5,
+    borderColor: Colors.error,
+    padding: 14,
+    borderRadius: Radii.lg,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 6,
+  },
+  logoutContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  btnLogoutText: {
+    color: Colors.error,
+    fontWeight: '700',
+    fontSize: 15,
+  },
   btnBack: { padding: 12, alignItems: 'center', marginTop: 4 },
   btnBackText: { color: Colors.onSurfaceVariant, fontWeight: '600' },
+  feedbackBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(0, 255, 204, 0.12)',
+    padding: 12,
+    borderRadius: Radii.default,
+  },
+  feedbackText: { color: Colors.brandTeal, fontSize: 14, fontWeight: '600' },
   logCard: { backgroundColor: '#120524', borderRadius: Radii.lg, padding: 14, maxHeight: 240 },
   logTitle: { color: Colors.brandTeal, fontSize: 14, fontWeight: '700', marginBottom: 6 },
   logScroll: { maxHeight: 180 },
   logText: { color: '#b0bec5', fontSize: 11, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' },
 });
+

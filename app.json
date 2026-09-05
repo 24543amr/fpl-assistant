@@ -20,7 +20,8 @@
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundColor": "#37003C"
       },
-      "package": "com.amrasss.fplassistant"
+      "package": "com.amrasss.fplassistant",
+      "softwareKeyboardLayoutMode": "resize"
     },
     "web": {
       "favicon": "./assets/favicon.png",

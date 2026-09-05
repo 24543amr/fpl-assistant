@@ -25,7 +25,9 @@ import { useFocusEffect } from '@react-navigation/native';
 
 import { Colors, FontSizes, Radii, Spacing } from '@/constants/theme';
 import { useHomeData } from '@/hooks/useHomeData';
-import { FPLPick } from '@/api/fpl';
+import { FPLPick, getPlayerPhotoUrl } from '@/api/fpl';
+import AppHeader from '@/components/AppHeader';
+import BottomNav from '@/components/BottomNav';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 
@@ -54,7 +56,7 @@ const STRINGS = {
     navSquad: 'Squad',
     navNews: 'News',
     navAi: 'AI Assistant',
-    navProfile: 'Profile',
+    navLeagues: 'Leagues',
     insightFallback: 'Roll your transfer to maximize flexibility for the double gameweek.',
   },
   ar: {
@@ -80,7 +82,7 @@ const STRINGS = {
     navSquad: 'فريقك',
     navNews: 'الأخبار',
     navAi: 'المساعد',
-    navProfile: 'حسابي',
+    navLeagues: 'الدوريات',
     insightFallback: 'تأجيل التغيير الجولة دي هيديك مرونة أكبر للجولة المزدوجة.',
   },
 } as const;
@@ -193,39 +195,18 @@ export default function HomeScreen() {
   const avatarUrl = `https://api.dicebear.com/7.x/initials/png?seed=${encodeURIComponent(managerName)}`;
 
   const captainPhotoCode = captainSuggestion?.player?.code || 118748;
-  const captainPhotoUrl = `https://resources.premierleague.com/premierleague/photos/players/110x140/p${captainPhotoCode}.png`;
+  const captainPhotoUrl = getPlayerPhotoUrl(captainSuggestion?.player, captainPhotoCode);
 
   return (
     <View style={styles.root}>
       {/* ── Fixed Blur Top Header ── */}
-      <SafeAreaView style={styles.fixedHeaderSafeArea} edges={['top']}>
-        <View style={styles.fixedHeader}>
-          <View style={styles.brandGroup}>
-            <MaterialCommunityIcons name="soccer" size={24} color={Colors.tertiary} />
-            <Text style={[styles.brandTitle, { fontFamily: 'ArchivoNarrow_700' }]}>
-              {t.appName}
-            </Text>
-          </View>
-          <View style={styles.headerActions}>
-            {/* Notification Bell */}
-            <TouchableOpacity style={styles.iconBtn} activeOpacity={0.7}>
-              <MaterialIcons name="notifications-none" size={22} color={Colors.onSurface} />
-              <View style={styles.unreadDot} />
-            </TouchableOpacity>
-
-            {/* Language Toggle */}
-            <TouchableOpacity
-              style={styles.langToggle}
-              onPress={() => setIsArabic(!isArabic)}
-              activeOpacity={0.8}
-            >
-              <Text style={[styles.langActive, { fontFamily: labelFont }]}>{t.activeLang}</Text>
-              <View style={styles.langDivider} />
-              <Text style={[styles.langMuted, { fontFamily: labelFont }]}>{t.toggleLang}</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </SafeAreaView>
+      <AppHeader
+        isArabic={isArabic}
+        onToggleLanguage={setIsArabic}
+        showNotificationBell
+        avatarUrl={avatarUrl}
+        onAvatarPress={() => router.push('/profile')}
+      />
 
       {/* ── Scrollable Body ── */}
       <ScrollView
@@ -242,7 +223,11 @@ export default function HomeScreen() {
       >
         {/* ── 2. User Row ── */}
         <View style={[styles.userRow, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
-          <View style={[styles.userInfo, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
+          <TouchableOpacity
+            style={[styles.userInfo, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}
+            onPress={() => router.push('/profile')}
+            activeOpacity={0.8}
+          >
             <Image source={{ uri: avatarUrl }} style={styles.avatar} />
             <View style={{ alignItems: isRTL ? 'flex-end' : 'flex-start' }}>
               <Text style={[styles.teamName, { fontFamily: headlineFont }]}>{teamName}</Text>
@@ -250,7 +235,7 @@ export default function HomeScreen() {
                 👤 {managerName}  •  #{activeTeamId}
               </Text>
             </View>
-          </View>
+          </TouchableOpacity>
         </View>
         {!!error && <Text style={[styles.dataNotice, { fontFamily: bodyFont }]}>{error}</Text>}
 
@@ -396,41 +381,7 @@ export default function HomeScreen() {
       </ScrollView>
 
       {/* ── 7. Fixed Bottom Nav ── */}
-      <SafeAreaView style={styles.bottomNavSafeArea} edges={['bottom']}>
-        <View style={styles.bottomNav}>
-          <NavItem
-            icon="home"
-            label={t.navHome}
-            active
-            labelFont={labelFont}
-            onPress={() => {}}
-          />
-          <NavItem
-            icon="groups"
-            label={t.navSquad}
-            labelFont={labelFont}
-            onPress={() => router.push('/squad')}
-          />
-          <NavItem
-            icon="article"
-            label={t.navNews}
-            labelFont={labelFont}
-            onPress={() => router.push('/news')}
-          />
-          <NavItem
-            icon="psychology"
-            label={t.navAi}
-            labelFont={labelFont}
-            onPress={() => router.push('/ai')}
-          />
-          <NavItem
-            icon="person"
-            label={t.navProfile}
-            labelFont={labelFont}
-            onPress={() => router.push('/profile')}
-          />
-        </View>
-      </SafeAreaView>
+      <BottomNav activeTab="home" isArabic={isArabic} />
     </View>
   );
 }
