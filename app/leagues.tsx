@@ -98,7 +98,7 @@ export default function LeaguesScreen() {
 
   const handleLeaguePress = (league: FPLLeagueClassic) => {
     router.push({
-      pathname: '/league-detail',
+      pathname: '/league-detail' as any,
       params: {
         id: String(league.id),
         name: league.name,

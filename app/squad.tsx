@@ -6,7 +6,7 @@
  * bench order cards with doubt/injury indicators, gameweek status card, and live FPL save.
  */
 
-import React, { useState, useCallback, useMemo, useEffect } from 'react';
+import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -121,9 +121,12 @@ export default function SquadScreen() {
   // Data & loading state
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [isBackgroundRefreshing, setIsBackgroundRefreshing] = useState(false);
+  const [squadError, setSquadError] = useState<string | null>(null);
   const [isSavingLineup, setIsSavingLineup] = useState(false);
   const [isSubmittingTransfers, setIsSubmittingTransfers] = useState(false);
   const [hasFplSession, setHasFplSession] = useState(false);
+  const hasLoadedSquadOnce = useRef(false);
 
   const [entry, setEntry] = useState<FPLUserEntry | null>(null);
   const [picks, setPicks] = useState<FPLPick[]>([]);
@@ -178,9 +181,16 @@ export default function SquadScreen() {
   const textAlign = isRTL ? 'right' : 'left';
 
   // Load team picks on focus
-  const loadSquadData = useCallback(async (isRefresh = false) => {
-    if (isRefresh) setRefreshing(true);
-    else setIsLoading(true);
+  const loadSquadData = useCallback(async (mode: 'initial' | 'refresh' | 'focus' | boolean = 'initial') => {
+    const resolvedMode = typeof mode === 'boolean' ? (mode ? 'refresh' : 'initial') : mode;
+    if (resolvedMode === 'refresh') {
+      setRefreshing(true);
+    } else if (resolvedMode === 'focus' || hasLoadedSquadOnce.current) {
+      setIsBackgroundRefreshing(true);
+    } else {
+      setIsLoading(true);
+    }
+    setSquadError(null);
 
     try {
       const teamId = await getStoredTeamId();
@@ -236,21 +246,29 @@ export default function SquadScreen() {
         userPicks = await fetchUserPicks(teamId, resolvedGw, pMap).catch(() => []);
       }
 
-      setPicks(userPicks);
-      setTransfersInfo(tInfo);
-      setStagedTransfers([]);
-      setHasLineupChanges(false);
+      // Only update picks if userPicks has elements; never clear existing squad on focus!
+      if (userPicks && userPicks.length > 0) {
+        setPicks(userPicks);
+        if (tInfo) setTransfersInfo(tInfo);
+        hasLoadedSquadOnce.current = true;
+      }
+      if (mode !== 'focus') {
+        setStagedTransfers([]);
+        setHasLineupChanges(false);
+      }
     } catch (e: any) {
       console.error('[Squad Screen] Load error:', e.message);
+      setSquadError(e?.message || 'Unable to update squad.');
     } finally {
       setIsLoading(false);
       setRefreshing(false);
+      setIsBackgroundRefreshing(false);
     }
   }, []);
 
   useFocusEffect(
     useCallback(() => {
-      void loadSquadData(false);
+      void loadSquadData(hasLoadedSquadOnce.current ? 'focus' : 'initial');
     }, [loadSquadData])
   );
 
@@ -497,7 +515,7 @@ export default function SquadScreen() {
           isArabic ? 'تمت الانتقالات بنجاح! ⚽' : 'Transfers Confirmed! ⚽',
           isArabic ? 'تم تنفيذ انتقالاتك الرسمية على سيرفرات FPL بنجاح.' : 'Your official transfers have been submitted.'
         );
-        void loadSquadData(true);
+        void loadSquadData('refresh');
       }
     } catch (e: any) {
       Alert.alert(isArabic ? 'خطأ في الانتقالات' : 'Transfer Error', e.message || 'Failed to submit transfer.');
@@ -606,7 +624,7 @@ export default function SquadScreen() {
       </View>
 
       {/* ── Main Screen Body ── */}
-      {isLoading ? (
+      {isLoading && picks.length === 0 ? (
         <View style={styles.loadingCenter}>
           <ActivityIndicator size="large" color={Colors.brandTeal} />
           <Text style={[styles.loadingText, { fontFamily: bodyFont }]}>
@@ -620,12 +638,30 @@ export default function SquadScreen() {
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
-              onRefresh={() => loadSquadData(true)}
+              onRefresh={() => loadSquadData('refresh')}
               tintColor={Colors.brandTeal}
               colors={[Colors.brandTeal]}
             />
           }
         >
+          {/* ── Background Sync Indicator ── */}
+          {isBackgroundRefreshing && !refreshing && (
+            <View style={[styles.backgroundSyncRow, { flexDirection: flexDir }]}>
+              <ActivityIndicator size="small" color={Colors.brandTeal} />
+              <Text style={[styles.backgroundSyncText, { fontFamily: labelFont }]}>
+                {isArabic ? 'تحديث التشكيلة في الخلفية...' : 'Updating squad in background...'}
+              </Text>
+            </View>
+          )}
+
+          {!!squadError && picks.length > 0 && (
+            <View style={[styles.subtleErrorToast, { flexDirection: flexDir }]}>
+              <MaterialIcons name="info-outline" size={16} color={Colors.secondaryContainer} />
+              <Text style={[styles.subtleErrorText, { fontFamily: bodyFont, textAlign }]}>
+                {squadError}
+              </Text>
+            </View>
+          )}
           {/* ========================================================================= */}
           {/* SCREEN A: PITCH FORMATION VIEW                                            */}
           {/* ========================================================================= */}
@@ -1062,7 +1098,7 @@ export default function SquadScreen() {
                 setActionMenuPick(null);
                 if (pId) {
                   router.push({
-                    pathname: '/player-switch',
+                    pathname: '/player-switch' as any,
                     params: { playerId: String(pId) },
                   });
                 }
@@ -1746,6 +1782,36 @@ const styles = StyleSheet.create({
   loadingText: {
     color: Colors.onSurfaceVariant,
     fontSize: 14,
+  },
+  backgroundSyncRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 4,
+    gap: 8,
+    marginBottom: 4,
+  },
+  backgroundSyncText: {
+    color: Colors.brandTeal,
+    fontSize: 12,
+    letterSpacing: 0.5,
+  },
+  subtleErrorToast: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(255, 180, 0, 0.12)',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: Radii.default,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 180, 0, 0.25)',
+    marginBottom: 4,
+  },
+  subtleErrorText: {
+    color: Colors.onSurface,
+    fontSize: 12,
+    flex: 1,
   },
 
   scrollContent: {
