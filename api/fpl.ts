@@ -578,6 +578,31 @@ export async function joinPrivateLeague(code: string): Promise<{ success: boolea
   return data;
 }
 
+export interface FixtureStatEntry {
+  value: number;
+  element: number;
+}
+
+export type FixtureStatIdentifier =
+  | 'goals_scored'
+  | 'assists'
+  | 'own_goals'
+  | 'penalties_saved'
+  | 'penalties_missed'
+  | 'yellow_cards'
+  | 'red_cards'
+  | 'saves'
+  | 'bonus'
+  | 'bps'
+  | 'defensive_contribution'
+  | string;
+
+export interface FixtureStat {
+  identifier: FixtureStatIdentifier;
+  h: FixtureStatEntry[];
+  a: FixtureStatEntry[];
+}
+
 export interface FPLFixture {
   id: number;
   code: number;
@@ -594,6 +619,7 @@ export interface FPLFixture {
   kickoff_time: string;
   minutes?: number;
   pulse_id?: number;
+  stats?: FixtureStat[];
 }
 
 export interface TeamNextFixtureInfo {

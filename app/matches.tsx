@@ -10,7 +10,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { MaterialIcons } from "@expo/vector-icons";
-import { useFocusEffect } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Colors, Spacing, Radii } from "@/constants/theme";
 import BottomNav from "@/components/BottomNav";
@@ -20,13 +20,15 @@ import {
   FPLFixture,
   FPLTeam,
   FPLEvent,
+  FPLPlayer,
   DEFAULT_TEAMS_MAP,
 } from "@/api/fpl";
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
-interface MatchesData {
+export interface MatchesCache {
   fixtures: FPLFixture[];
   teamsMapArr: [number, FPLTeam][];
+  elementsMapArr: [number, string][];   // element id -> web_name
   events: FPLEvent[];
   currentEvent: number;
   fetchedAt: number;
@@ -61,25 +63,30 @@ function isLive(f: FPLFixture): boolean {
 }
 
 // ─── Cache ─────────────────────────────────────────────────────────────────────
-const CACHE_KEY = "matches_data_cache_v1";
+export const MATCHES_CACHE_KEY = "matches_data_cache_v2";
 const CACHE_TTL = 5 * 60 * 1000;
 
-async function loadCache(): Promise<{ data: MatchesData; teamsMap: Map<number, FPLTeam> } | null> {
+export async function loadMatchesCache(): Promise<{
+  data: MatchesCache;
+  teamsMap: Map<number, FPLTeam>;
+  elementsMap: Map<number, string>;
+} | null> {
   try {
-    const raw = await AsyncStorage.getItem(CACHE_KEY);
+    const raw = await AsyncStorage.getItem(MATCHES_CACHE_KEY);
     if (!raw) return null;
-    const parsed: MatchesData = JSON.parse(raw);
+    const parsed: MatchesCache = JSON.parse(raw);
     if (Date.now() - parsed.fetchedAt > CACHE_TTL) return null;
     const teamsMap = new Map<number, FPLTeam>(parsed.teamsMapArr ?? []);
-    return { data: parsed, teamsMap };
+    const elementsMap = new Map<number, string>(parsed.elementsMapArr ?? []);
+    return { data: parsed, teamsMap, elementsMap };
   } catch {
     return null;
   }
 }
 
-async function saveCache(d: MatchesData): Promise<void> {
+async function saveMatchesCache(d: MatchesCache): Promise<void> {
   try {
-    await AsyncStorage.setItem(CACHE_KEY, JSON.stringify(d));
+    await AsyncStorage.setItem(MATCHES_CACHE_KEY, JSON.stringify(d));
   } catch {}
 }
 
@@ -88,10 +95,12 @@ const FixtureRow = React.memo(function FixtureRow({
   fixture,
   teamsMap,
   isArabic,
+  onPress,
 }: {
   fixture: FPLFixture;
   teamsMap: Map<number, FPLTeam>;
   isArabic: boolean;
+  onPress?: () => void;
 }) {
   const homeTeam = teamsMap.get(fixture.team_h);
   const awayTeam = teamsMap.get(fixture.team_a);
@@ -101,6 +110,7 @@ const FixtureRow = React.memo(function FixtureRow({
   const awayFullName = awayTeam?.name ?? awaySN;
   const live = isLive(fixture);
   const done = fixture.finished || fixture.finished_provisional;
+  const tappable = done || live;
 
   const middle = done ? (
     <View style={styles.scoreBox}>
@@ -120,8 +130,8 @@ const FixtureRow = React.memo(function FixtureRow({
     </View>
   );
 
-  return (
-    <View style={styles.fixtureRow}>
+  const inner = (
+    <View style={[styles.fixtureRow, tappable && styles.fixtureRowTappable]}>
       <View style={[styles.teamSide, { alignItems: "flex-start" }]}>
         <Text style={styles.teamSN}>{homeSN}</Text>
         <Text style={styles.teamFull} numberOfLines={1}>{homeFullName}</Text>
@@ -134,6 +144,12 @@ const FixtureRow = React.memo(function FixtureRow({
         <Text style={styles.teamFull} numberOfLines={1}>{awayFullName}</Text>
       </View>
 
+      {tappable && (
+        <View style={styles.detailArrow}>
+          <MaterialIcons name="chevron-right" size={14} color={Colors.onSurfaceVariant} />
+        </View>
+      )}
+
       {live && (
         <View style={styles.liveBadge}>
           <View style={styles.liveDot} />
@@ -142,6 +158,15 @@ const FixtureRow = React.memo(function FixtureRow({
       )}
     </View>
   );
+
+  if (tappable && onPress) {
+    return (
+      <TouchableOpacity onPress={onPress} activeOpacity={0.7}>
+        {inner}
+      </TouchableOpacity>
+    );
+  }
+  return inner;
 });
 
 // ─── GameweekSection ───────────────────────────────────────────────────────────
@@ -151,12 +176,14 @@ function GameweekSection({
   isArabic,
   isCurrent,
   defaultOpen,
+  onFixturePress,
 }: {
   group: GameweekGroup;
   teamsMap: Map<number, FPLTeam>;
   isArabic: boolean;
   isCurrent: boolean;
   defaultOpen: boolean;
+  onFixturePress: (fixture: FPLFixture) => void;
 }) {
   const [open, setOpen] = useState(defaultOpen);
   const hasLive = group.fixtures.some(isLive);
@@ -196,7 +223,13 @@ function GameweekSection({
       {open && (
         <View>
           {group.fixtures.map((f) => (
-            <FixtureRow key={f.id} fixture={f} teamsMap={teamsMap} isArabic={isArabic} />
+            <FixtureRow
+              key={f.id}
+              fixture={f}
+              teamsMap={teamsMap}
+              isArabic={isArabic}
+              onPress={() => onFixturePress(f)}
+            />
           ))}
         </View>
       )}
@@ -206,7 +239,8 @@ function GameweekSection({
 
 // ─── Main Screen ───────────────────────────────────────────────────────────────
 export default function MatchesScreen() {
-  const [matchesData, setMatchesData] = useState<MatchesData | null>(null);
+  const router = useRouter();
+  const [matchesData, setMatchesData] = useState<MatchesCache | null>(null);
   const [teamsMap, setTeamsMap] = useState<Map<number, FPLTeam>>(new Map());
   const [isLoading, setIsLoading] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -215,14 +249,12 @@ export default function MatchesScreen() {
   const hasLoadedOnce = useRef(false);
   const isFetching = useRef(false);
 
-  // ── Language pref ─────────────────────────────────────────────────────────────
   React.useEffect(() => {
     AsyncStorage.getItem("app_language")
       .then((lang) => { if (lang) setIsArabic(lang === "ar"); })
       .catch(() => {});
   }, []);
 
-  // ── Gameweek groups ───────────────────────────────────────────────────────────
   const gwGroups: GameweekGroup[] = useMemo(() => {
     if (!matchesData) return [];
     const map = new Map<number, FPLFixture[]>();
@@ -243,7 +275,6 @@ export default function MatchesScreen() {
     return groups;
   }, [matchesData]);
 
-  // ── Fetch ─────────────────────────────────────────────────────────────────────
   const fetchData = useCallback(
     async (mode: "initial" | "focus" | "pull") => {
       if (isFetching.current) return;
@@ -253,9 +284,8 @@ export default function MatchesScreen() {
       if (mode === "pull") setIsRefreshing(true);
 
       try {
-        // Show cached data instantly on first load
         if (mode === "initial" && !matchesData) {
-          const cached = await loadCache();
+          const cached = await loadMatchesCache();
           if (cached) {
             setMatchesData(cached.data);
             setTeamsMap(cached.teamsMap);
@@ -271,14 +301,20 @@ export default function MatchesScreen() {
         const newTeamsMap = new Map<number, FPLTeam>();
         for (const t of bootstrap.teams) newTeamsMap.set(t.id, t);
 
+        const newElementsMap = new Map<number, string>();
+        for (const el of bootstrap.elements as FPLPlayer[]) {
+          newElementsMap.set(el.id, el.web_name);
+        }
+
         const currentEvent =
           bootstrap.events.find((e) => e.is_current)?.id ??
           bootstrap.events.find((e) => e.is_next)?.id ??
           1;
 
-        const newData: MatchesData = {
+        const newData: MatchesCache = {
           fixtures,
           teamsMapArr: [...newTeamsMap.entries()],
+          elementsMapArr: [...newElementsMap.entries()],
           events: bootstrap.events,
           currentEvent,
           fetchedAt: Date.now(),
@@ -288,7 +324,7 @@ export default function MatchesScreen() {
         setTeamsMap(newTeamsMap);
         setError(null);
         hasLoadedOnce.current = true;
-        await saveCache(newData);
+        await saveMatchesCache(newData);
       } catch (err: any) {
         console.error("[Matches] fetch error:", err?.message);
         if (!hasLoadedOnce.current) {
@@ -313,12 +349,20 @@ export default function MatchesScreen() {
     }, [fetchData])
   );
 
-  // ── Render ────────────────────────────────────────────────────────────────────
+  const handleFixturePress = useCallback(
+    (fixture: FPLFixture) => {
+      router.push({
+        pathname: "/match-detail" as any,
+        params: { fixtureId: String(fixture.id) },
+      });
+    },
+    [router]
+  );
+
   const currentGw = matchesData?.currentEvent ?? 0;
 
   return (
     <SafeAreaView style={styles.safe} edges={["top", "left", "right"]}>
-      {/* Header */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>
           {isArabic ? "المباريات" : "Matches"}
@@ -332,7 +376,6 @@ export default function MatchesScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Subtle error toast (data already shown) */}
       {error && matchesData && (
         <View style={styles.subtleError}>
           <MaterialIcons name="warning-amber" size={13} color="#FBBF24" />
@@ -340,7 +383,6 @@ export default function MatchesScreen() {
         </View>
       )}
 
-      {/* First load spinner */}
       {isLoading && !matchesData ? (
         <View style={styles.center}>
           <ActivityIndicator size="large" color={Colors.brandTeal} />
@@ -349,7 +391,6 @@ export default function MatchesScreen() {
           </Text>
         </View>
       ) : error && !matchesData ? (
-        /* Full error state */
         <View style={styles.center}>
           <MaterialIcons name="wifi-off" size={48} color={Colors.onSurfaceVariant} />
           <Text style={styles.errorText}>{error}</Text>
@@ -379,6 +420,7 @@ export default function MatchesScreen() {
               isArabic={isArabic}
               isCurrent={group.gw === currentGw}
               defaultOpen={group.gw === currentGw}
+              onFixturePress={handleFixturePress}
             />
           ))}
         </ScrollView>
@@ -467,8 +509,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.sm,
     gap: Spacing.sm,
   },
-
-  // Gameweek section
   gwSection: {
     borderRadius: Radii.xl,
     overflow: "hidden",
@@ -516,8 +556,6 @@ const styles = StyleSheet.create({
     fontSize: 10,
     color: "#FF6B6B",
   },
-
-  // Fixture row
   fixtureRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -526,6 +564,9 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "rgba(255,255,255,0.04)",
     position: "relative",
+  },
+  fixtureRowTappable: {
+    backgroundColor: "rgba(255,255,255,0.02)",
   },
   teamSide: { flex: 1, gap: 2 },
   teamSN: {
@@ -579,6 +620,11 @@ const styles = StyleSheet.create({
     fontSize: 10,
     color: Colors.onSurfaceVariant,
     textAlign: "center",
+  },
+  detailArrow: {
+    position: "absolute",
+    right: 6,
+    top: "50%",
   },
   liveBadge: {
     position: "absolute",
