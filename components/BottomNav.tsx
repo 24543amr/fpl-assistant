@@ -10,7 +10,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { Colors, Spacing } from '@/constants/theme';
 
-export type TabKey = 'home' | 'squad' | 'news' | 'ai' | 'leagues';
+export type TabKey = 'home' | 'matches' | 'squad' | 'news' | 'ai' | 'leagues';
 
 export interface BottomNavProps {
   activeTab: TabKey;
@@ -27,6 +27,7 @@ interface TabItemConfig {
 
 const TABS: TabItemConfig[] = [
   { key: 'home', icon: 'home', labelEn: 'Home', labelAr: 'الرئيسية', route: '/home' },
+  { key: 'matches', icon: 'sports-soccer', labelEn: 'Matches', labelAr: 'المباريات', route: '/matches' },
   { key: 'squad', icon: 'groups', labelEn: 'Squad', labelAr: 'تشكيلتي', route: '/squad' },
   { key: 'news', icon: 'article', labelEn: 'News', labelAr: 'الأخبار', route: '/news' },
   { key: 'ai', icon: 'psychology', labelEn: 'AI Assistant', labelAr: 'المساعد', route: '/ai' },

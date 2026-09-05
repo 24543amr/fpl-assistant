@@ -583,12 +583,17 @@ export interface FPLFixture {
   code: number;
   event: number | null;
   finished: boolean;
+  finished_provisional?: boolean;
   started?: boolean;
   team_h: number;
   team_a: number;
+  team_h_score: number | null;
+  team_a_score: number | null;
   team_h_difficulty: number;
   team_a_difficulty: number;
   kickoff_time: string;
+  minutes?: number;
+  pulse_id?: number;
 }
 
 export interface TeamNextFixtureInfo {
