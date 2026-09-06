@@ -222,7 +222,10 @@ export function getPlayerPhotoUrl(player?: FPLPlayer | null, elementId?: number)
     ? player.photo.replace('.jpg', '')
     : String(player?.code || elementId || '');
   if (!photoCode) return '';
-  return `https://resources.premierleague.com/premierleague/photos/players/110x140/p${photoCode}.png`;
+  const fullName = player ? `${player.first_name || ''} ${player.second_name || ''}`.trim() || player.web_name : '';
+  const candidateUrls = getBackendCandidateUrls();
+  const backendBase = candidateUrls[0] || 'http://localhost:3001';
+  return `${backendBase}/api/fpl/player-photo/${photoCode}?name=${encodeURIComponent(fullName)}&v=sportsdb_v2`;
 }
 
 export interface FPLTeam {
