@@ -17,15 +17,17 @@ import {
   Animated,
   Dimensions,
   RefreshControl,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useFocusEffect } from '@react-navigation/native';
 
 import { Colors, FontSizes, Radii, Spacing } from '@/constants/theme';
 import { useHomeData } from '@/hooks/useHomeData';
-import { FPLPick } from '@/api/fpl';
+import { FPLPick, getPlayerPhotoUrl } from '@/api/fpl';
+import AppHeader from '@/components/AppHeader';
+import BottomNav from '@/components/BottomNav';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 
@@ -54,7 +56,7 @@ const STRINGS = {
     navSquad: 'Squad',
     navNews: 'News',
     navAi: 'AI Assistant',
-    navProfile: 'Profile',
+    navLeagues: 'Leagues',
     insightFallback: 'Roll your transfer to maximize flexibility for the double gameweek.',
   },
   ar: {
@@ -80,7 +82,7 @@ const STRINGS = {
     navSquad: 'فريقك',
     navNews: 'الأخبار',
     navAi: 'المساعد',
-    navProfile: 'حسابي',
+    navLeagues: 'الدوريات',
     insightFallback: 'تأجيل التغيير الجولة دي هيديك مرونة أكبر للجولة المزدوجة.',
   },
 } as const;
@@ -135,19 +137,20 @@ export default function HomeScreen() {
     activeTeamId,
     authMode,
     lastFetched,
+    isRefreshing,
     refetch,
   } = useHomeData();
 
+  const isFirstLoad = isLoading && !entry;
 
   const [refreshing, setRefreshing] = useState(false);
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await refetch();
+    await refetch(false);
     setRefreshing(false);
   }, [refetch]);
 
-  // Force a fresh live fetch on every Home screen focus (not just mount)
-  useFocusEffect(useCallback(() => { void refetch(); }, [refetch]));
+  // Data is held in the session cache; refresh is explicit rather than triggered by tab navigation.
 
   // Live timer for deadline
   const [countdownStr, setCountdownStr] = useState<string>('');
@@ -193,39 +196,18 @@ export default function HomeScreen() {
   const avatarUrl = `https://api.dicebear.com/7.x/initials/png?seed=${encodeURIComponent(managerName)}`;
 
   const captainPhotoCode = captainSuggestion?.player?.code || 118748;
-  const captainPhotoUrl = `https://resources.premierleague.com/premierleague/photos/players/110x140/p${captainPhotoCode}.png`;
+  const captainPhotoUrl = getPlayerPhotoUrl(captainSuggestion?.player, captainPhotoCode);
 
   return (
     <View style={styles.root}>
       {/* ── Fixed Blur Top Header ── */}
-      <SafeAreaView style={styles.fixedHeaderSafeArea} edges={['top']}>
-        <View style={styles.fixedHeader}>
-          <View style={styles.brandGroup}>
-            <MaterialCommunityIcons name="soccer" size={24} color={Colors.tertiary} />
-            <Text style={[styles.brandTitle, { fontFamily: 'ArchivoNarrow_700' }]}>
-              {t.appName}
-            </Text>
-          </View>
-          <View style={styles.headerActions}>
-            {/* Notification Bell */}
-            <TouchableOpacity style={styles.iconBtn} activeOpacity={0.7}>
-              <MaterialIcons name="notifications-none" size={22} color={Colors.onSurface} />
-              <View style={styles.unreadDot} />
-            </TouchableOpacity>
-
-            {/* Language Toggle */}
-            <TouchableOpacity
-              style={styles.langToggle}
-              onPress={() => setIsArabic(!isArabic)}
-              activeOpacity={0.8}
-            >
-              <Text style={[styles.langActive, { fontFamily: labelFont }]}>{t.activeLang}</Text>
-              <View style={styles.langDivider} />
-              <Text style={[styles.langMuted, { fontFamily: labelFont }]}>{t.toggleLang}</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </SafeAreaView>
+      <AppHeader
+        isArabic={isArabic}
+        onToggleLanguage={setIsArabic}
+        showNotificationBell
+        avatarUrl={avatarUrl}
+        onAvatarPress={() => router.push('/profile')}
+      />
 
       {/* ── Scrollable Body ── */}
       <ScrollView
@@ -240,9 +222,23 @@ export default function HomeScreen() {
           />
         }
       >
+        {/* ── Background Refresh Indicator ── */}
+        {isRefreshing && !refreshing && (
+          <View style={[styles.backgroundSyncRow, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
+            <ActivityIndicator size="small" color={Colors.brandTeal} />
+            <Text style={[styles.backgroundSyncText, { fontFamily: labelFont }]}>
+              {isArabic ? 'جاري تحديث البيانات في الخلفية...' : 'Updating data in background...'}
+            </Text>
+          </View>
+        )}
+
         {/* ── 2. User Row ── */}
         <View style={[styles.userRow, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
-          <View style={[styles.userInfo, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
+          <TouchableOpacity
+            style={[styles.userInfo, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}
+            onPress={() => router.push('/profile')}
+            activeOpacity={0.8}
+          >
             <Image source={{ uri: avatarUrl }} style={styles.avatar} />
             <View style={{ alignItems: isRTL ? 'flex-end' : 'flex-start' }}>
               <Text style={[styles.teamName, { fontFamily: headlineFont }]}>{teamName}</Text>
@@ -250,12 +246,21 @@ export default function HomeScreen() {
                 👤 {managerName}  •  #{activeTeamId}
               </Text>
             </View>
-          </View>
+          </TouchableOpacity>
         </View>
-        {!!error && <Text style={[styles.dataNotice, { fontFamily: bodyFont }]}>{error}</Text>}
+
+        {!!error && isFirstLoad && <Text style={[styles.dataNotice, { fontFamily: bodyFont }]}>{error}</Text>}
+        {!!error && !isFirstLoad && (
+          <View style={[styles.subtleErrorToast, { flexDirection: isRTL ? 'row-reverse' : 'row' }]}>
+            <MaterialIcons name="info-outline" size={16} color={Colors.secondaryContainer} />
+            <Text style={[styles.subtleErrorText, { fontFamily: bodyFont, textAlign: isRTL ? 'right' : 'left' }]}>
+              {error}
+            </Text>
+          </View>
+        )}
 
         {/* ── 3. Hero Stats Card ── */}
-        {isLoading ? (
+        {isFirstLoad ? (
           <SkeletonCard shimmerAnim={shimmerAnim} height={150} />
         ) : (
           <View style={styles.heroCard}>
@@ -296,7 +301,7 @@ export default function HomeScreen() {
           contentContainerStyle={styles.horizontalScroll}
         >
           {/* Card A: Next Deadline */}
-          {isLoading ? (
+          {isFirstLoad ? (
             <SkeletonCard shimmerAnim={shimmerAnim} width={240} height={140} />
           ) : (
             <View style={styles.miniCard}>
@@ -316,7 +321,7 @@ export default function HomeScreen() {
           )}
 
           {/* Card B: Captain Pick */}
-          {isLoading ? (
+          {isFirstLoad ? (
             <SkeletonCard shimmerAnim={shimmerAnim} width={280} height={140} />
           ) : (
             <View style={[styles.miniCard, styles.captainCard]}>
@@ -355,7 +360,7 @@ export default function HomeScreen() {
             </TouchableOpacity>
           </View>
 
-          {isLoading ? (
+          {isFirstLoad ? (
             <SkeletonCard shimmerAnim={shimmerAnim} height={260} />
           ) : (
             picks.length ? <MiniPitch picks={picks} isArabic={isArabic} /> : <View style={styles.emptySquad}><Text style={[styles.emptySquadText, { fontFamily: bodyFont }]}>FPL has not published this gameweek’s public squad picks yet.</Text></View>
@@ -371,7 +376,7 @@ export default function HomeScreen() {
             </Text>
           </View>
 
-          {isLoading ? (
+          {isFirstLoad ? (
             <Animated.View style={[styles.insightShimmer, { opacity: shimmerAnim }]} />
           ) : (
             <Text style={[styles.insightBody, { fontFamily: bodyFont, textAlign: isRTL ? 'right' : 'left' }]}>
@@ -391,46 +396,13 @@ export default function HomeScreen() {
         </View>
         <Text style={[styles.debugText, { fontFamily: labelFont }]}>
           Team ID: {activeTeamId || '—'} | GW: {currentGw || '—'} | Mode: {authMode} | Fetched: {lastFetched || '—'}
+          {isRefreshing ? (isArabic ? ' (جاري التحديث...)' : ' (refreshing...)') : ''}
         </Text>
 
       </ScrollView>
 
       {/* ── 7. Fixed Bottom Nav ── */}
-      <SafeAreaView style={styles.bottomNavSafeArea} edges={['bottom']}>
-        <View style={styles.bottomNav}>
-          <NavItem
-            icon="home"
-            label={t.navHome}
-            active
-            labelFont={labelFont}
-            onPress={() => {}}
-          />
-          <NavItem
-            icon="groups"
-            label={t.navSquad}
-            labelFont={labelFont}
-            onPress={() => router.push('/squad')}
-          />
-          <NavItem
-            icon="article"
-            label={t.navNews}
-            labelFont={labelFont}
-            onPress={() => router.push('/news')}
-          />
-          <NavItem
-            icon="psychology"
-            label={t.navAi}
-            labelFont={labelFont}
-            onPress={() => router.push('/ai')}
-          />
-          <NavItem
-            icon="person"
-            label={t.navProfile}
-            labelFont={labelFont}
-            onPress={() => router.push('/profile')}
-          />
-        </View>
-      </SafeAreaView>
+      <BottomNav activeTab="home" isArabic={isArabic} />
     </View>
   );
 }
@@ -637,6 +609,36 @@ const styles = StyleSheet.create({
     color: Colors.onSurfaceVariant,
     fontSize: 12,
     opacity: 0.7,
+  },
+
+  // Background Sync & Subtle Error Toast
+  backgroundSyncRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 4,
+    gap: 8,
+  },
+  backgroundSyncText: {
+    color: Colors.brandTeal,
+    fontSize: 12,
+    letterSpacing: 0.5,
+  },
+  subtleErrorToast: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(255, 180, 0, 0.12)',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: Radii.default,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 180, 0, 0.25)',
+  },
+  subtleErrorText: {
+    color: Colors.onSurface,
+    fontSize: 12,
+    flex: 1,
   },
 
   // Scroll Content

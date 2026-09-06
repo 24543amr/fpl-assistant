@@ -1,29 +1,55 @@
-import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import React, { useState } from 'react';
+import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import { Colors, FontSizes, Spacing, Radii } from '@/constants/theme';
+import AppHeader from '@/components/AppHeader';
+import BottomNav from '@/components/BottomNav';
 
 export default function NewsScreen() {
-  const router = useRouter();
+  const [isArabic, setIsArabic] = useState(false);
+  const headlineFont = isArabic ? 'Cairo_700' : 'ArchivoNarrow_700';
+  const bodyFont = isArabic ? 'IBMPlexSansArabic' : 'HankenGrotesk';
+
   return (
-    <SafeAreaView style={styles.root}>
-      <View style={styles.container}>
-        <Text style={styles.title}>FPL News & Updates</Text>
-        <Text style={styles.sub}>Latest injury updates, team news, and expert tips.</Text>
-        <TouchableOpacity style={styles.btn} onPress={() => router.replace('/home')}>
-          <Text style={styles.btnText}>← Back to Home</Text>
-        </TouchableOpacity>
-      </View>
-    </SafeAreaView>
+    <View style={styles.root}>
+      {/* ── SHARED TOP HEADER ── */}
+      <AppHeader
+        title={isArabic ? 'الأخبار والتحديثات' : 'FPL News & Updates'}
+        isArabic={isArabic}
+        onToggleLanguage={setIsArabic}
+      />
+
+      <ScrollView contentContainerStyle={styles.container}>
+        <View style={styles.card}>
+          <Text style={[styles.title, { fontFamily: headlineFont }]}>
+            {isArabic ? 'آخر أخبار وإصابات الفانتاسي' : 'Latest FPL News & Insights'}
+          </Text>
+          <Text style={[styles.sub, { fontFamily: bodyFont }]}>
+            {isArabic
+              ? 'تابع هنا أحدث أخبار المؤتمرات الصحفية، تقارير الإصابات، ومواعيد المباريات وتحديثات الجولات المزدوجة أولاً بأول.'
+              : 'Stay tuned for live press conferences, injury updates, double gameweek announcements, and tactical scouting.'}
+          </Text>
+        </View>
+      </ScrollView>
+
+      {/* ── SHARED BOTTOM NAVIGATION BAR ── */}
+      <BottomNav activeTab="news" isArabic={isArabic} />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: Colors.brandPurple },
-  container: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: Spacing.lg, gap: Spacing.md },
-  title: { color: Colors.white, fontSize: FontSizes.headlineMd, fontFamily: 'ArchivoNarrow_700' },
-  sub: { color: Colors.onSurfaceVariant, fontSize: FontSizes.bodyMd, fontFamily: 'HankenGrotesk', textAlign: 'center' },
-  btn: { backgroundColor: Colors.brandTeal, paddingHorizontal: Spacing.lg, paddingVertical: 12, borderRadius: Radii.lg, marginTop: Spacing.md },
-  btnText: { color: Colors.brandPurple, fontFamily: 'HankenGrotesk_700', fontWeight: '700' },
+  container: { flex: 1, padding: Spacing.lg, justifyContent: 'center' },
+  card: {
+    backgroundColor: Colors.surface,
+    padding: Spacing.xl,
+    borderRadius: Radii.xl,
+    alignItems: 'center',
+    gap: Spacing.sm,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+  },
+  title: { color: Colors.white, fontSize: FontSizes.headlineMd, textAlign: 'center' },
+  sub: { color: Colors.onSurfaceVariant, fontSize: FontSizes.bodyMd, textAlign: 'center', lineHeight: 22 },
 });
+

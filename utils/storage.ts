@@ -156,18 +156,36 @@ export async function setStoredFplToken({ accessToken, refreshToken, csrfToken }
   await AsyncStorage.multiSet(pairs);
 }
 
-/** Clear stored OIDC tokens on logout or session expiry. */
+/** Clear stored OIDC tokens, team ID, in-memory caches, and native cookies on logout or session expiry. */
 export async function clearStoredFplToken(): Promise<void> {
   inMemoryAccessToken = '';
   inMemoryRefreshToken = '';
   inMemoryCsrfToken = '';
-  await Promise.all([
-    AsyncStorage.removeItem(FPL_ACCESS_TOKEN_KEY),
-    AsyncStorage.removeItem(FPL_REFRESH_TOKEN_KEY),
-    AsyncStorage.removeItem(FPL_CSRF_TOKEN_KEY),
-    AsyncStorage.removeItem(FPL_SESSION_COOKIE_KEY), // legacy cleanup
+  inMemoryTeamId = '';
+  savedPicksMap.clear();
+  listeners.forEach((listener) => listener(''));
+
+  try {
+    const rawModule = require('@react-native-cookies/cookies');
+    const CookieManager = rawModule?.default || rawModule;
+    if (CookieManager?.clearAll) {
+      await CookieManager.clearAll(true).catch(() => {});
+      await CookieManager.clearAll(false).catch(() => {});
+    }
+  } catch (cookieErr) {
+    console.warn('[Storage] CookieManager clear error:', cookieErr);
+  }
+
+  await AsyncStorage.multiRemove([
+    FPL_ACCESS_TOKEN_KEY,
+    FPL_REFRESH_TOKEN_KEY,
+    FPL_CSRF_TOKEN_KEY,
+    FPL_TEAM_ID_KEY,
+    FPL_SESSION_COOKIE_KEY, // legacy cleanup
   ]);
 }
+
+export const clearAllSessionData = clearStoredFplToken;
 
 // ── Legacy shims ──────────────────────────────────────────────────────────────
 

@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, KeyboardAvoidingView, Modal, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -111,11 +111,35 @@ export default function ConnectTeam() {
   const [infoMsg, setInfoMsg] = useState(params.expired === '1' ? 'Your session expired — please log in again' : '');
   const [confirmation, setConfirmation] = useState('');
   const [showWebView, setShowWebView] = useState(false);
+  const [webViewKey, setWebViewKey] = useState(0);
   const [loginStatus, setLoginStatus] = useState<'idle' | 'awaiting_login' | 'finalizing'>('idle');
 
   const hasVisitedAuthPage = useRef(false);
   const isExtractingToken = useRef(false);
   const extractRetryCount = useRef(0);
+  const safetyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pollingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearSafetyTimeout = useCallback(() => {
+    if (safetyTimeoutRef.current) {
+      clearTimeout(safetyTimeoutRef.current);
+      safetyTimeoutRef.current = null;
+    }
+  }, []);
+
+  const clearPollingTimeout = useCallback(() => {
+    if (pollingTimeoutRef.current) {
+      clearTimeout(pollingTimeoutRef.current);
+      pollingTimeoutRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      clearSafetyTimeout();
+      clearPollingTimeout();
+    };
+  }, [clearSafetyTimeout, clearPollingTimeout]);
 
   const connectVerifiedTeam = useCallback(async (candidate: string) => {
     setLoading(true); setError('');
@@ -140,6 +164,9 @@ export default function ConnectTeam() {
   };
 
   const completeSession = useCallback(async (accessToken: string, refreshToken?: string, csrfToken?: string) => {
+    clearSafetyTimeout();
+    clearPollingTimeout();
+    isExtractingToken.current = false;
     setShowWebView(false); setLoading(true); setError('');
 
     if (typeof accessToken !== 'string' || !accessToken.trim()) {
@@ -173,11 +200,31 @@ export default function ConnectTeam() {
       setError(err?.message || 'Login failed. Could not verify FPL session. Try entering your Team ID directly.');
       setTab('teamId');
     }
-  }, [connectVerifiedTeam]);
+  }, [clearSafetyTimeout, clearPollingTimeout, connectVerifiedTeam]);
+
+  /**
+   * Starts the token extraction polling.
+   */
+  const triggerTokenExtraction = useCallback((reason: string) => {
+    if (isExtractingToken.current) return;
+    console.log(`[OAuth WebView] Starting token extraction (${reason})...`);
+    isExtractingToken.current = true;
+    extractRetryCount.current = 0;
+    setLoginStatus('finalizing');
+
+    clearPollingTimeout();
+    pollingTimeoutRef.current = setTimeout(() => {
+      if (isExtractingToken.current) {
+        webViewRef.current?.injectJavaScript(EXTRACT_OIDC_TOKEN_JS);
+      }
+    }, 500);
+  }, [clearPollingTimeout]);
 
   /**
    * Called on every navigation state change.
-   * Tracks when the user is on PingOne, and triggers extraction ONLY after redirect back.
+   * Handles:
+   * - Case A (fresh login): Detects PingOne auth page, then triggers extraction upon return to fantasy.premierleague.com
+   * - Case B (already authenticated): Directly triggers extraction when navigating on fantasy.premierleague.com
    */
   const handleNavigationStateChange = useCallback((state: { url: string }) => {
     const { url } = state;
@@ -187,34 +234,35 @@ export default function ConnectTeam() {
     if (url.includes('account.premierleague.com') || url.includes('auth.pingone') || url.includes('/as/authorize')) {
       hasVisitedAuthPage.current = true;
       isExtractingToken.current = false;
+      clearPollingTimeout();
       setLoginStatus('awaiting_login');
-      console.log('[OAuth WebView] On PingOne auth page — waiting for user to enter credentials (no polling timer running)...');
+      console.log('[OAuth WebView] On PingOne auth page — waiting for user to enter credentials...');
       return;
     }
 
-    // 2. Post-Auth Redirect: user finished logging in and is redirected back to fantasy.premierleague.com
-    const isPostAuth = url.includes('fantasy.premierleague.com') && (
-      url.includes('code=') ||
-      (hasVisitedAuthPage.current && (
-        url.includes('/my-team') ||
-        url.includes('/entry') ||
-        url.includes('/transfers') ||
-        url.includes('/event') ||
-        url === 'https://fantasy.premierleague.com/' ||
-        url.endsWith('fantasy.premierleague.com/')
-      ))
-    );
+    // 2. When on fantasy.premierleague.com (both fresh redirect AND already-authenticated session)
+    if (url.includes('fantasy.premierleague.com')) {
+      triggerTokenExtraction(`navigation: ${url}`);
+    }
+  }, [clearPollingTimeout, triggerTokenExtraction]);
 
-    if (!isPostAuth || isExtractingToken.current) return;
+  /**
+   * Called when a page finishes loading in WebView.
+   * Catches cases where WebView lands directly on fantasy.premierleague.com (already logged in).
+   */
+  const handleLoadEnd = useCallback((syntheticEvent: any) => {
+    const url = syntheticEvent?.nativeEvent?.url || '';
+    console.log(`[OAuth WebView LoadEnd] ${url}`);
 
-    isExtractingToken.current = true;
-    extractRetryCount.current = 0;
-    setLoginStatus('finalizing');
-    console.log('[OAuth WebView] Post-auth return detected! Starting token extraction polling...');
-    setTimeout(() => {
-      webViewRef.current?.injectJavaScript(EXTRACT_OIDC_TOKEN_JS);
-    }, 1000);
-  }, []);
+    if (
+      url.includes('fantasy.premierleague.com') &&
+      !url.includes('account.premierleague.com') &&
+      !url.includes('auth.pingone') &&
+      !url.includes('/as/authorize')
+    ) {
+      triggerTokenExtraction(`loadEnd: ${url}`);
+    }
+  }, [triggerTokenExtraction]);
 
   /**
    * Receives messages posted from the injected JavaScript.
@@ -225,6 +273,8 @@ export default function ConnectTeam() {
       console.log('[OAuth WebView Message] type:', msg.type);
 
       if (msg.type === 'OIDC_TOKEN') {
+        clearSafetyTimeout();
+        clearPollingTimeout();
         const oidcData = JSON.parse(msg.payload);
         const accessToken: string = oidcData.access_token;
         const refreshToken: string | undefined = oidcData.refresh_token;
@@ -255,49 +305,79 @@ export default function ConnectTeam() {
 
       } else if (msg.type === 'OIDC_NOT_FOUND') {
         if (!isExtractingToken.current) {
-          // If we haven't reached the post-auth stage yet, ignore
           return;
         }
 
         extractRetryCount.current += 1;
-        console.log(`[OAuth WebView] Token exchange in progress (attempt ${extractRetryCount.current}/45, stored keys: ${msg.totalFound}, expired: ${msg.expiredFound}). Polling again in 1s...`);
+        const maxRetries = hasVisitedAuthPage.current ? 45 : 5;
+        console.log(`[OAuth WebView] Token check in progress (attempt ${extractRetryCount.current}/${maxRetries}, authVisited: ${hasVisitedAuthPage.current}, stored keys: ${msg.totalFound}, expired: ${msg.expiredFound})...`);
 
-        if (extractRetryCount.current < 45) {
-          setTimeout(() => {
+        if (extractRetryCount.current < maxRetries) {
+          clearPollingTimeout();
+          pollingTimeoutRef.current = setTimeout(() => {
             if (isExtractingToken.current) {
               webViewRef.current?.injectJavaScript(EXTRACT_OIDC_TOKEN_JS);
             }
           }, 1000);
         } else {
-          console.warn('[OAuth WebView] Token exchange timed out after 45s.');
           isExtractingToken.current = false;
-          setShowWebView(false);
-          setError('Sign-in timed out waiting for FPL session. Please try again.');
-          setTab('login');
+          if (hasVisitedAuthPage.current) {
+            console.warn('[OAuth WebView] Token exchange timed out after post-auth.');
+            clearSafetyTimeout();
+            setShowWebView(false);
+            setError('Sign-in timed out waiting for FPL session. Please try again.');
+            setTab('login');
+          } else {
+            // Initial check found no existing session in localStorage; stay in WebView for user to login
+            console.log('[OAuth WebView] No existing session found on initial load. Awaiting user login...');
+            setLoginStatus('awaiting_login');
+          }
         }
 
       } else if (msg.type === 'OIDC_ERROR') {
         console.error('[OAuth WebView] JS extraction error:', msg.error);
         isExtractingToken.current = false;
-        setShowWebView(false);
-        setError('Could not extract FPL session. Please try again.');
-        setTab('login');
+        clearPollingTimeout();
+        if (hasVisitedAuthPage.current) {
+          clearSafetyTimeout();
+          setShowWebView(false);
+          setError('Could not extract FPL session. Please try again.');
+          setTab('login');
+        } else {
+          setLoginStatus('awaiting_login');
+        }
       }
     } catch (e: any) {
       console.error('[OAuth WebView] Failed to parse message:', e.message);
       isExtractingToken.current = false;
+      clearPollingTimeout();
     }
-  }, [completeSession]);
+  }, [completeSession, clearPollingTimeout, clearSafetyTimeout]);
 
   const openWebView = () => {
+    clearSafetyTimeout();
+    clearPollingTimeout();
+    setWebViewKey((prev) => prev + 1);
     hasVisitedAuthPage.current = false;
     isExtractingToken.current = false;
     extractRetryCount.current = 0;
     setLoginStatus('awaiting_login');
     setShowWebView(true);
+
+    // 60-second maximum safety timeout
+    safetyTimeoutRef.current = setTimeout(() => {
+      console.warn('[OAuth WebView] Maximum 60s display safety timeout reached.');
+      clearPollingTimeout();
+      isExtractingToken.current = false;
+      setShowWebView(false);
+      setError('Sign-in timed out. Please try again.');
+      setTab('login');
+    }, 60000);
   };
 
   const closeWebView = () => {
+    clearSafetyTimeout();
+    clearPollingTimeout();
     hasVisitedAuthPage.current = false;
     isExtractingToken.current = false;
     setShowWebView(false);
@@ -359,6 +439,7 @@ export default function ConnectTeam() {
             <TouchableOpacity onPress={closeWebView}><MaterialIcons name="close" size={26} color={Colors.onSurface} /></TouchableOpacity>
           </View>
           <WebView
+            key={webViewKey}
             ref={webViewRef}
             source={{ uri: FPL_LOGIN_URL }}
             sharedCookiesEnabled
@@ -366,6 +447,7 @@ export default function ConnectTeam() {
             domStorageEnabled
             javaScriptEnabled
             onNavigationStateChange={handleNavigationStateChange}
+            onLoadEnd={handleLoadEnd}
             onMessage={handleWebViewMessage}
           />
         </SafeAreaView>

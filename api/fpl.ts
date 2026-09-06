@@ -1,10 +1,91 @@
 import Constants from 'expo-constants';
 import { getStoredFplToken, setStoredFplToken, clearStoredFplToken } from '@/utils/storage';
 
-export interface FPLPlayer { id: number; code: number; web_name: string; first_name: string; second_name: string; element_type: number; team: number; now_cost: number; form: string; selected_by_percent: string; total_points: number; }
+export interface FPLPlayer {
+  id: number;
+  code: number;
+  web_name: string;
+  first_name: string;
+  second_name: string;
+  element_type: number;
+  team: number;
+  now_cost: number;
+  form: string;
+  selected_by_percent: string;
+  total_points: number;
+  chance_of_playing_next_round?: number | null;
+  chance_of_playing_this_round?: number | null;
+  status?: string;
+  news?: string;
+  photo?: string;
+  bonus?: number;
+  bps?: number;
+}
 export interface FPLEvent { id: number; name: string; deadline_time: string; is_current: boolean; is_next: boolean; finished: boolean; }
 export interface FPLPick { element: number; position: number; is_captain: boolean; is_vice_captain: boolean; multiplier: number; player?: FPLPlayer; selling_price?: number; purchase_price?: number; }
-export interface FPLUserEntry { id: number; name: string; player_first_name: string; player_last_name: string; summary_overall_points: number; summary_overall_rank: number; summary_event_points: number; summary_event_rank: number; current_event: number; last_season_points?: number; last_season_rank?: number; }
+export interface FPLLeagueClassic {
+  id: number;
+  name: string;
+  short_name?: string | null;
+  created: string;
+  closed: boolean;
+  rank?: number | null;
+  max_entries?: number | null;
+  league_type: string;
+  scoring: string;
+  admin_entry?: number | null;
+  start_event: number;
+  entry_can_leave?: boolean;
+  entry_can_admin?: boolean;
+  entry_can_invite?: boolean;
+  has_cup?: boolean;
+  rank_count?: number;
+  entry_rank?: number;
+  entry_last_rank?: number;
+  entry_percentile_rank?: number;
+}
+export interface FPLLeaguesData {
+  classic: FPLLeagueClassic[];
+  h2h?: any[];
+  cup?: any;
+  cup_matches?: any[];
+}
+export interface FPLStandingItem {
+  id: number;
+  entry: number;
+  entry_name: string;
+  player_name: string;
+  rank: number;
+  last_rank: number;
+  rank_sort: number;
+  total: number;
+  event_total: number;
+}
+export interface FPLLeagueStandingsResponse {
+  league: {
+    id: number;
+    name: string;
+    created: string;
+    closed: boolean;
+    max_entries?: number | null;
+    league_type: string;
+    scoring: string;
+    admin_entry?: number | null;
+    start_event: number;
+    has_cup?: boolean;
+  };
+  standings: {
+    has_next: boolean;
+    page: number;
+    results: FPLStandingItem[];
+  };
+  new_entries?: {
+    has_next: boolean;
+    page: number;
+    results: any[];
+  };
+}
+export interface FPLUserEntry { id: number; name: string; player_first_name: string; player_last_name: string; summary_overall_points: number; summary_overall_rank: number; summary_event_points: number; summary_event_rank: number; current_event: number; last_season_points?: number; last_season_rank?: number; leagues?: FPLLeaguesData; bank?: number; value?: number; }
 export interface CaptainSuggestion { player: FPLPlayer; reasoningEn: string; reasoningAr: string; }
 export interface AiInsight { insightEn: string; insightAr: string; }
 export interface FPLTransfersInfo { bank: number; limit: number; made: number; cost: number; value: number; }
@@ -114,15 +195,83 @@ export async function refreshFplToken(
 }
 
 function player(element: any): FPLPlayer {
-  return { id: element.id, code: element.code, web_name: element.web_name, first_name: element.first_name, second_name: element.second_name, element_type: element.element_type, team: element.team, now_cost: element.now_cost, form: element.form || '0.0', selected_by_percent: element.selected_by_percent || '0.0', total_points: element.total_points || 0 };
+  return {
+    id: element.id,
+    code: element.code,
+    web_name: element.web_name,
+    first_name: element.first_name,
+    second_name: element.second_name,
+    element_type: element.element_type,
+    team: element.team,
+    now_cost: element.now_cost,
+    form: element.form || '0.0',
+    selected_by_percent: element.selected_by_percent || '0.0',
+    total_points: element.total_points || 0,
+    chance_of_playing_next_round: element.chance_of_playing_next_round,
+    chance_of_playing_this_round: element.chance_of_playing_this_round,
+    status: element.status,
+    news: element.news,
+    photo: element.photo,
+    bonus: element.bonus || 0,
+    bps: element.bps || 0,
+  };
 }
 
-export async function fetchBootstrap(): Promise<{ events: FPLEvent[]; elements: FPLPlayer[] }> {
+export function getPlayerPhotoUrl(player?: FPLPlayer | null, elementId?: number): string {
+  const photoCode = player?.photo
+    ? player.photo.replace('.jpg', '')
+    : String(player?.code || elementId || '');
+  if (!photoCode) return '';
+  const fullName = player ? `${player.first_name || ''} ${player.second_name || ''}`.trim() || player.web_name : '';
+  const candidateUrls = getBackendCandidateUrls();
+  const backendBase = candidateUrls[0] || 'http://localhost:3001';
+  return `${backendBase}/api/fpl/player-photo/${photoCode}?name=${encodeURIComponent(fullName)}&v=sportsdb_v2`;
+}
+
+export interface FPLTeam {
+  id: number;
+  name: string;
+  short_name: string;
+  code: number;
+}
+
+export const DEFAULT_TEAMS_MAP = new Map<number, string>([
+  [1, 'ARS'],
+  [2, 'AVL'],
+  [3, 'BOU'],
+  [4, 'BRE'],
+  [5, 'BHA'],
+  [6, 'CHE'],
+  [7, 'COV'],
+  [8, 'CRY'],
+  [9, 'EVE'],
+  [10, 'FUL'],
+  [11, 'HUL'],
+  [12, 'IPS'],
+  [13, 'LEE'],
+  [14, 'LIV'],
+  [15, 'MCI'],
+  [16, 'MUN'],
+  [17, 'NEW'],
+  [18, 'NFO'],
+  [19, 'TOT'],
+  [20, 'SUN'],
+]);
+
+export async function fetchBootstrap(): Promise<{
+  events: FPLEvent[];
+  elements: FPLPlayer[];
+  teams: FPLTeam[];
+}> {
   const response = await backendFetch(`/api/fpl/bootstrap?_t=${Date.now()}`);
   if (!response.ok) throw new Error('Could not fetch current FPL gameweek.');
   const data = await response.json();
-  console.log(`[FPL API] bootstrap-static: ${data.events?.length} events, ${data.elements?.length} elements`);
-  return { events: data.events || [], elements: (data.elements || []).map(player) };
+  console.log(`[FPL API] bootstrap-static: ${data.events?.length} events, ${data.elements?.length} elements, ${data.teams?.length} teams`);
+  return {
+    events: data.events || [],
+    elements: (data.elements || []).map(player),
+    teams: data.teams || [],
+  };
 }
 
 export async function fetchUserEntry(teamId: string | number): Promise<FPLUserEntry> {
@@ -272,6 +421,54 @@ export async function fetchAiInsight(teamId?: string): Promise<AiInsight> {
   };
 }
 
+export interface AiChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+export interface ReferencedPlayer {
+  id: number;
+  code: number;
+  web_name: string;
+  first_name: string;
+  second_name: string;
+  element_type: number;
+  team: number;
+  team_short?: string;
+  form: string;
+  now_cost: number;
+  total_points: number;
+}
+
+export interface AiChatResponse {
+  reply: string;
+  referencedPlayer?: ReferencedPlayer | null;
+  budget?: string;
+  currentGW?: number;
+  error?: string;
+}
+
+export async function sendAiChatMessage(
+  message: string,
+  teamId?: string | number,
+  conversationHistory: AiChatMessage[] = [],
+): Promise<AiChatResponse> {
+  const response = await backendFetch('/api/ai/chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      teamId: String(teamId || ''),
+      message,
+      conversationHistory,
+    }),
+  });
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.error || errorData.reply || `Chat server error HTTP ${response.status}`);
+  }
+  return response.json();
+}
+
 /**
  * Save lineup changes (captain, vice-captain, formation, subs order) via backend.
  * 🔑 Posts to https://fantasy.premierleague.com/api/my-team/{teamId}/
@@ -348,3 +545,251 @@ export async function submitFplTransfer(params: {
 
   return { success: true, message: data.message || 'Transfer submitted to FPL successfully!' };
 }
+
+/**
+ * Fetch standings for a specific classic mini-league.
+ */
+export async function fetchLeagueStandings(
+  leagueId: number | string,
+  page: number = 1
+): Promise<FPLLeagueStandingsResponse> {
+  const response = await backendFetch(
+    `/api/fpl/leagues-classic/${encodeURIComponent(String(leagueId))}/standings?page_standings=${page}&_t=${Date.now()}`
+  );
+  if (!response.ok) {
+    throw new Error('Failed to load league standings.');
+  }
+  return response.json();
+}
+
+/**
+ * Submit request to join a private league by league code.
+ */
+export async function joinPrivateLeague(code: string): Promise<{ success: boolean; message?: string }> {
+  const response = await backendFetch('/api/fpl/leagues/join', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code }),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(data.message || data.error || 'Failed to join league.');
+  }
+  return data;
+}
+
+export interface FixtureStatEntry {
+  value: number;
+  element: number;
+}
+
+export type FixtureStatIdentifier =
+  | 'goals_scored'
+  | 'assists'
+  | 'own_goals'
+  | 'penalties_saved'
+  | 'penalties_missed'
+  | 'yellow_cards'
+  | 'red_cards'
+  | 'saves'
+  | 'bonus'
+  | 'bps'
+  | 'defensive_contribution'
+  | string;
+
+export interface FixtureStat {
+  identifier: FixtureStatIdentifier;
+  h: FixtureStatEntry[];
+  a: FixtureStatEntry[];
+}
+
+export interface FPLFixture {
+  id: number;
+  code: number;
+  event: number | null;
+  finished: boolean;
+  finished_provisional?: boolean;
+  started?: boolean;
+  team_h: number;
+  team_a: number;
+  team_h_score: number | null;
+  team_a_score: number | null;
+  team_h_difficulty: number;
+  team_a_difficulty: number;
+  kickoff_time: string;
+  minutes?: number;
+  pulse_id?: number;
+  stats?: FixtureStat[];
+}
+
+export interface TeamNextFixtureInfo {
+  opponentTeamId: number;
+  opponentCode: string;
+  isHome: boolean;
+  difficulty: number;
+  event: number | null;
+}
+
+/**
+ * Fetch all season fixtures from backend proxy.
+ */
+export async function fetchFixtures(): Promise<FPLFixture[]> {
+  try {
+    const response = await backendFetch('/api/fpl/fixtures');
+    if (response.ok) {
+      return await response.json();
+    }
+  } catch (_) {}
+
+  const fallback = await backendFetch('/api/fixtures');
+  if (!fallback.ok) {
+    throw new Error('Failed to load fixtures.');
+  }
+  return fallback.json();
+}
+
+/**
+ * Get the target gameweek for upcoming unplayed fixtures.
+ */
+export function getTargetGameweek(events: FPLEvent[] = []): number {
+  const current = events.find(e => e.is_current);
+  if (current && !current.finished) {
+    return current.id;
+  }
+  const next = events.find(e => e.is_next);
+  if (next) {
+    return next.id;
+  }
+  return current ? current.id : 1;
+}
+
+/**
+ * Get fixtures for a team in a specific gameweek (handles blank, single, and double GW).
+ */
+export function getTeamNextGwFixtures(
+  teamId: number,
+  fixtures: FPLFixture[],
+  targetGw: number,
+  teamsMap: Map<number, string>
+): TeamNextFixtureInfo[] {
+  if (!teamId || !fixtures || fixtures.length === 0) return [];
+  const gwFixtures = fixtures.filter(f => f.event === targetGw);
+  const teamFix = gwFixtures.filter(f => f.team_h === teamId || f.team_a === teamId);
+  return teamFix.map(f => {
+    const isHome = f.team_h === teamId;
+    const opponentTeamId = isHome ? f.team_a : f.team_h;
+    const opponentCode = teamsMap.get(opponentTeamId) || DEFAULT_TEAMS_MAP.get(opponentTeamId) || 'PL';
+    const difficulty = isHome ? f.team_h_difficulty : f.team_a_difficulty;
+    return {
+      opponentTeamId,
+      opponentCode,
+      isHome,
+      difficulty,
+      event: f.event,
+    };
+  });
+}
+
+/**
+ * Get the next N upcoming fixtures for a team starting from targetGw.
+ */
+export function getTeamUpcomingFiveFixtures(
+  teamId: number,
+  fixtures: FPLFixture[],
+  targetGw: number,
+  teamsMap: Map<number, string>,
+  count: number = 5
+): TeamNextFixtureInfo[] {
+  if (!teamId || !fixtures || fixtures.length === 0) return [];
+  const unplayed = fixtures
+    .filter(
+      f =>
+        f.event !== null &&
+        f.event >= targetGw &&
+        !f.finished &&
+        (f.team_h === teamId || f.team_a === teamId)
+    )
+    .sort((a, b) => (a.event || 0) - (b.event || 0));
+
+  return unplayed.slice(0, count).map(f => {
+    const isHome = f.team_h === teamId;
+    const opponentTeamId = isHome ? f.team_a : f.team_h;
+    const opponentCode = teamsMap.get(opponentTeamId) || DEFAULT_TEAMS_MAP.get(opponentTeamId) || 'PL';
+    const difficulty = isHome ? f.team_h_difficulty : f.team_a_difficulty;
+    return {
+      opponentTeamId,
+      opponentCode,
+      isHome,
+      difficulty,
+      event: f.event,
+    };
+  });
+}
+
+export interface FPLHistoryItem {
+  element: number;
+  fixture: number;
+  opponent_team: number;
+  total_points: number;
+  was_home: boolean;
+  round: number;
+}
+
+export interface FPLUpcomingFixtureItem {
+  id: number;
+  event: number;
+  is_home: boolean;
+  difficulty: number;
+  team_h: number;
+  team_a: number;
+}
+
+export interface FPLElementSummary {
+  history: FPLHistoryItem[];
+  fixtures: FPLUpcomingFixtureItem[];
+}
+
+/**
+ * Fetch past gameweek history and upcoming fixtures for a single player.
+ */
+export async function fetchElementSummary(playerId: number | string): Promise<FPLElementSummary> {
+  const response = await backendFetch(`/api/fpl/element-summary/${encodeURIComponent(String(playerId))}?_t=${Date.now()}`);
+  if (!response.ok) {
+    throw new Error('Failed to fetch element summary.');
+  }
+  return response.json();
+}
+
+export interface FPLLiveElement {
+  id: number;
+  stats: {
+    total_points: number;
+    minutes?: number;
+    goals_scored?: number;
+    assists?: number;
+    bonus?: number;
+    bps?: number;
+  };
+}
+
+/**
+ * Fetch real live points for all players in a specific gameweek.
+ */
+export async function fetchGameweekLive(gameweek: number): Promise<Map<number, number>> {
+  try {
+    const response = await backendFetch(`/api/fpl/event/${gameweek}/live?_t=${Date.now()}`);
+    if (response.ok) {
+      const payload = await response.json() as { elements?: FPLLiveElement[] };
+      const map = new Map<number, number>();
+      for (const el of payload.elements || []) {
+        map.set(el.id, el.stats?.total_points ?? 0);
+      }
+      return map;
+    }
+  } catch (e) {
+    console.warn('[fetchGameweekLive] Failed to fetch live points:', e);
+  }
+  return new Map();
+}
+
+
