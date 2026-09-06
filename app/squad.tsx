@@ -51,12 +51,13 @@ import {
   FPLPlayer,
   FPLUserEntry,
   FPLTransfersInfo,
+  fetchGameweekLive,
   FPLEvent,
 } from '@/api/fpl';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 
-type ScreenTab = 'squad' | 'transfers';
+type ScreenTab = 'squad' | 'points' | 'transfers';
 
 const POSITION_COLORS: Record<number, string> = {
   1: '#FBBF24', // GK: amber
@@ -154,6 +155,32 @@ export default function SquadScreen() {
   const [transferPickerPick, setTransferPickerPick] = useState<{ pick: FPLPick; index: number } | null>(null);
   const [pickerSearchQuery, setPickerSearchQuery] = useState('');
   const [pickerSortBy, setPickerSortBy] = useState<'points' | 'form' | 'cost'>('points');
+
+  // Screen C (Points) state
+  const [pointsGw, setPointsGw] = useState<number>(1);
+  const [livePointsMap, setLivePointsMap] = useState<Map<number, number>>(new Map());
+  const [isLoadingPoints, setIsLoadingPoints] = useState(false);
+
+  useEffect(() => {
+    if (currentGw > 0 && pointsGw === 1) {
+      setPointsGw(currentGw);
+    }
+  }, [currentGw]);
+
+  useEffect(() => {
+    if (activeTab === 'points' && pointsGw > 0) {
+      setIsLoadingPoints(true);
+      fetchGameweekLive(pointsGw)
+        .then((map) => {
+          setLivePointsMap(map);
+        })
+        .catch((err) => {
+          console.warn('[Squad] Failed to fetch live points:', err?.message);
+          setLivePointsMap(new Map());
+        })
+        .finally(() => setIsLoadingPoints(false));
+    }
+  }, [activeTab, pointsGw]);
 
   // Load element summary whenever actionMenuPick opens
   useEffect(() => {
@@ -563,6 +590,21 @@ export default function SquadScreen() {
   const mids = starters.filter(p => p.player?.element_type === 3);
   const fwds = starters.filter(p => p.player?.element_type === 4);
 
+  const totalStartersPoints = useMemo(() => {
+    return starters.reduce((acc, pick) => {
+      const rawPts = livePointsMap.get(pick.element) ?? pick.player?.total_points ?? 0;
+      const mult = pick.multiplier || (pick.is_captain ? 2 : 1);
+      return acc + (rawPts * mult);
+    }, 0);
+  }, [starters, livePointsMap]);
+
+  const totalBenchPoints = useMemo(() => {
+    return bench.reduce((acc, pick) => {
+      const rawPts = livePointsMap.get(pick.element) ?? pick.player?.total_points ?? 0;
+      return acc + rawPts;
+    }, 0);
+  }, [bench, livePointsMap]);
+
   const teamNameDisplay = entry?.name || `Team ${getSavedTeamId()}`;
   const managerName = entry?.player_first_name && entry?.player_last_name
     ? `${entry.player_first_name} ${entry.player_last_name}`
@@ -591,7 +633,7 @@ export default function SquadScreen() {
         }
       />
 
-      {/* ── Segmented Control Bar (My Squad | Transfers) ── */}
+      {/* ── Segmented Control Bar (My Squad | Points | Transfers) ── */}
       <View style={[styles.segmentedControl, { flexDirection: flexDir }]}>
         <TouchableOpacity
           style={[styles.segmentBtn, activeTab === 'squad' && styles.segmentBtnActive]}
@@ -604,6 +646,20 @@ export default function SquadScreen() {
           />
           <Text style={[styles.segmentText, { fontFamily: labelFont }, activeTab === 'squad' && styles.segmentTextActive]}>
             {isArabic ? 'التشكيلة' : 'My Squad'}
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.segmentBtn, activeTab === 'points' && styles.segmentBtnActive]}
+          onPress={() => setActiveTab('points')}
+        >
+          <MaterialIcons
+            name="leaderboard"
+            size={18}
+            color={activeTab === 'points' ? Colors.brandPurple : Colors.onSurfaceVariant}
+          />
+          <Text style={[styles.segmentText, { fontFamily: labelFont }, activeTab === 'points' && styles.segmentTextActive]}>
+            {isArabic ? 'النقاط' : 'Points'}
           </Text>
         </TouchableOpacity>
 
@@ -865,7 +921,232 @@ export default function SquadScreen() {
           )}
 
           {/* ========================================================================= */}
-          {/* SCREEN B: TRANSFERS PLANNER VIEW                                          */}
+          {/* SCREEN B: POINTS VIEW (Real GW live points for all 15 players)             */}
+          {/* ========================================================================= */}
+          {activeTab === 'points' && (
+            <>
+              {/* 1. Gameweek Navigator & Total Points Hero */}
+              <View style={styles.statusCard}>
+                {/* Gameweek Selector */}
+                <View style={[styles.pointsGwSelectorRow, { flexDirection: flexDir }]}>
+                  <TouchableOpacity
+                    style={styles.gwArrowBtn}
+                    onPress={() => setPointsGw(Math.max(1, pointsGw - 1))}
+                    disabled={pointsGw <= 1}
+                  >
+                    <MaterialIcons
+                      name={isRTL ? 'chevron-right' : 'chevron-left'}
+                      size={24}
+                      color={pointsGw <= 1 ? 'rgba(255,255,255,0.2)' : Colors.white}
+                    />
+                  </TouchableOpacity>
+
+                  <View style={styles.gwTitleBadge}>
+                    <Text style={[styles.pointsGwTitleText, { fontFamily: headlineFont }]}>
+                      {isArabic ? `الجولة ${pointsGw}` : `Gameweek ${pointsGw}`}
+                    </Text>
+                    <Text style={[styles.pointsGwSubText, { fontFamily: monoFont }]}>
+                      {pointsGw === currentGw
+                        ? (isArabic ? 'الجولة الحالية' : 'Current Gameweek')
+                        : (isArabic ? 'جولة سابقة' : 'Past Gameweek')}
+                    </Text>
+                  </View>
+
+                  <TouchableOpacity
+                    style={styles.gwArrowBtn}
+                    onPress={() => setPointsGw(Math.min(currentGw || 38, pointsGw + 1))}
+                    disabled={pointsGw >= (currentGw || 38)}
+                  >
+                    <MaterialIcons
+                      name={isRTL ? 'chevron-left' : 'chevron-right'}
+                      size={24}
+                      color={pointsGw >= (currentGw || 38) ? 'rgba(255,255,255,0.2)' : Colors.white}
+                    />
+                  </TouchableOpacity>
+                </View>
+
+                {/* Big Score Cards Row */}
+                <View style={[styles.pointsHeroStatsRow, { flexDirection: flexDir }]}>
+                  {/* Starters Points */}
+                  <View style={[styles.pointsHeroCard, styles.pointsHeroCardMain]}>
+                    <Text style={[styles.pointsHeroLabel, { fontFamily: labelFont }]}>
+                      {isArabic ? 'نقاط التشكيلة' : 'Starting XI Pts'}
+                    </Text>
+                    {isLoadingPoints ? (
+                      <ActivityIndicator size="small" color={Colors.brandTeal} style={{ marginVertical: 8 }} />
+                    ) : (
+                      <Text style={[styles.pointsHeroMainVal, { fontFamily: headlineFont }]}>
+                        {totalStartersPoints}
+                      </Text>
+                    )}
+                    <Text style={[styles.pointsHeroSubText, { fontFamily: monoFont }]}>
+                      {isArabic ? '11 لاعب أساسي' : '11 Starting Players'}
+                    </Text>
+                  </View>
+
+                  {/* Bench Points */}
+                  <View style={styles.pointsHeroCard}>
+                    <Text style={[styles.pointsHeroLabel, { fontFamily: labelFont }]}>
+                      {isArabic ? 'نقاط الدكة' : 'Bench Pts'}
+                    </Text>
+                    {isLoadingPoints ? (
+                      <ActivityIndicator size="small" color={Colors.onSurfaceVariant} style={{ marginVertical: 8 }} />
+                    ) : (
+                      <Text style={[styles.pointsHeroBenchVal, { fontFamily: headlineFont }]}>
+                        {totalBenchPoints}
+                      </Text>
+                    )}
+                    <Text style={[styles.pointsHeroSubText, { fontFamily: monoFont }]}>
+                      {isArabic ? '4 لاعبين احتياط' : '4 Substitutes'}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+
+              {/* 2. Tactical Pitch with Starting 11 (Showing Points Badges) */}
+              <View style={styles.pitchContainer}>
+                <View style={styles.pitchCircle} pointerEvents="none" />
+                <View style={styles.pitchHalfwayLine} pointerEvents="none" />
+                <View style={styles.pitchPenaltyBoxTop} pointerEvents="none" />
+                <View style={styles.pitchPenaltyBoxBottom} pointerEvents="none" />
+
+                <View style={styles.pitchContent}>
+                  {/* GK Row */}
+                  <View style={styles.pitchRow}>
+                    {gks.map((pick) => {
+                      const realIndex = picks.findIndex(p => p.element === pick.element);
+                      const rawPts = livePointsMap.get(pick.element) ?? pick.player?.total_points ?? 0;
+                      const mult = pick.multiplier || (pick.is_captain ? 2 : 1);
+                      const finalPts = rawPts * mult;
+                      return (
+                        <PitchPlayerCard
+                          key={pick.element}
+                          pick={pick}
+                          teamsMap={teamsMap}
+                          fixtures={fixtures}
+                          targetGw={pointsGw}
+                          isArabic={isArabic}
+                          badgeMode="points"
+                          points={finalPts}
+                          isSelected={false}
+                          onPress={() => handlePlayerPress(realIndex)}
+                        />
+                      );
+                    })}
+                  </View>
+
+                  {/* DEF Row */}
+                  <View style={styles.pitchRow}>
+                    {defs.map((pick) => {
+                      const realIndex = picks.findIndex(p => p.element === pick.element);
+                      const rawPts = livePointsMap.get(pick.element) ?? pick.player?.total_points ?? 0;
+                      const mult = pick.multiplier || (pick.is_captain ? 2 : 1);
+                      const finalPts = rawPts * mult;
+                      return (
+                        <PitchPlayerCard
+                          key={pick.element}
+                          pick={pick}
+                          teamsMap={teamsMap}
+                          fixtures={fixtures}
+                          targetGw={pointsGw}
+                          isArabic={isArabic}
+                          badgeMode="points"
+                          points={finalPts}
+                          isSelected={false}
+                          onPress={() => handlePlayerPress(realIndex)}
+                        />
+                      );
+                    })}
+                  </View>
+
+                  {/* MID Row */}
+                  <View style={styles.pitchRow}>
+                    {mids.map((pick) => {
+                      const realIndex = picks.findIndex(p => p.element === pick.element);
+                      const rawPts = livePointsMap.get(pick.element) ?? pick.player?.total_points ?? 0;
+                      const mult = pick.multiplier || (pick.is_captain ? 2 : 1);
+                      const finalPts = rawPts * mult;
+                      return (
+                        <PitchPlayerCard
+                          key={pick.element}
+                          pick={pick}
+                          teamsMap={teamsMap}
+                          fixtures={fixtures}
+                          targetGw={pointsGw}
+                          isArabic={isArabic}
+                          badgeMode="points"
+                          points={finalPts}
+                          isSelected={false}
+                          onPress={() => handlePlayerPress(realIndex)}
+                        />
+                      );
+                    })}
+                  </View>
+
+                  {/* FWD Row */}
+                  <View style={styles.pitchRow}>
+                    {fwds.map((pick) => {
+                      const realIndex = picks.findIndex(p => p.element === pick.element);
+                      const rawPts = livePointsMap.get(pick.element) ?? pick.player?.total_points ?? 0;
+                      const mult = pick.multiplier || (pick.is_captain ? 2 : 1);
+                      const finalPts = rawPts * mult;
+                      return (
+                        <PitchPlayerCard
+                          key={pick.element}
+                          pick={pick}
+                          teamsMap={teamsMap}
+                          fixtures={fixtures}
+                          targetGw={pointsGw}
+                          isArabic={isArabic}
+                          badgeMode="points"
+                          points={finalPts}
+                          isSelected={false}
+                          onPress={() => handlePlayerPress(realIndex)}
+                        />
+                      );
+                    })}
+                  </View>
+                </View>
+              </View>
+
+              {/* 3. Bench Section with 4 Substitutes (Showing Points Badges) */}
+              <View style={styles.benchCard}>
+                <View style={[styles.benchHeaderRow, { flexDirection: flexDir }]}>
+                  <Text style={[styles.benchSectionTitle, { fontFamily: headlineFont }]}>
+                    {isArabic ? 'نقاط الدكة' : 'Bench Points'}
+                  </Text>
+                  <Text style={[styles.benchSubText, { fontFamily: monoFont }]}>
+                    {isArabic ? `${totalBenchPoints} نقطة` : `${totalBenchPoints} pts`}
+                  </Text>
+                </View>
+
+                <View style={[styles.benchRow, { flexDirection: flexDir }]}>
+                  {bench.map((pick, bIndex) => {
+                    const realIndex = 11 + bIndex;
+                    const pts = livePointsMap.get(pick.element) ?? pick.player?.total_points ?? 0;
+                    return (
+                      <BenchPlayerCard
+                        key={pick.element}
+                        pick={pick}
+                        benchIndex={bIndex + 1}
+                        teamsMap={teamsMap}
+                        fixtures={fixtures}
+                        targetGw={pointsGw}
+                        isArabic={isArabic}
+                        badgeMode="points"
+                        points={pts}
+                        isSelected={false}
+                        onPress={() => handlePlayerPress(realIndex)}
+                      />
+                    );
+                  })}
+                </View>
+              </View>
+            </>
+          )}
+
+          {/* ========================================================================= */}
+          {/* SCREEN C: TRANSFERS PLANNER VIEW (With 15-player Pitch & Bench)          */}
           {/* ========================================================================= */}
           {activeTab === 'transfers' && (
             <>
@@ -920,8 +1201,8 @@ export default function SquadScreen() {
                       <View style={styles.stagedIn}>
                         <Text style={styles.stagedInText}>IN: {st.element_in.web_name}</Text>
                       </View>
-                      <TouchableOpacity onPress={() => handleCancelStagedTransfer(st)}>
-                        <MaterialIcons name="cancel" size={20} color={Colors.error} />
+                      <TouchableOpacity onPress={() => handleCancelStagedTransfer(st)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                        <MaterialIcons name="cancel" size={22} color={Colors.error} />
                       </TouchableOpacity>
                     </View>
                   ))}
@@ -929,7 +1210,7 @@ export default function SquadScreen() {
                   <TouchableOpacity
                     style={styles.confirmTransfersBtn}
                     onPress={handleConfirmTransfers}
-                    disabled={isSubmittingTransfers}
+                    disabled={isSubmittingTransfers || calculatedBank < 0}
                   >
                     {isSubmittingTransfers ? (
                       <ActivityIndicator color={Colors.brandPurple} />
@@ -942,41 +1223,146 @@ export default function SquadScreen() {
                 </View>
               )}
 
-              {/* Squad List for Transfer Selection */}
-              <View style={styles.transfersListCard}>
-                <Text style={[styles.transfersListTitle, { fontFamily: headlineFont, textAlign }]}>
-                  {isArabic ? 'اختر لاعباً من تشكيلتك لاستبداله:' : 'Select Player to Replace:'}
+              {/* Instructions banner */}
+              <View style={[styles.transfersInstructionBanner, { flexDirection: flexDir }]}>
+                <MaterialIcons name="touch-app" size={18} color={Colors.brandTeal} />
+                <Text style={[styles.transfersInstructionText, { fontFamily: bodyFont, textAlign }]}>
+                  {isArabic
+                    ? 'اضغط على أي لاعب في التشكيلة أو الدكة لاستبداله بلاعب جديد مباشرة'
+                    : 'Tap any player on the pitch or bench to replace them'}
                 </Text>
+              </View>
 
-                {picks.map((pick, index) => (
-                  <View key={pick.element} style={[styles.transferListItem, { flexDirection: flexDir }]}>
-                    <Image
-                      source={{
-                        uri: getPlayerPhotoUrl(pick.player, pick.player?.code || pick.element),
-                      }}
-                      style={styles.transferListAvatar}
-                    />
+              {/* The Pitch with all 11 Starting Players (Transfer Mode: Price Badge & Tap to replace) */}
+              <View style={styles.pitchContainer}>
+                <View style={styles.pitchCircle} pointerEvents="none" />
+                <View style={styles.pitchHalfwayLine} pointerEvents="none" />
+                <View style={styles.pitchPenaltyBoxTop} pointerEvents="none" />
+                <View style={styles.pitchPenaltyBoxBottom} pointerEvents="none" />
 
-                    <View style={[styles.transferListInfo, { alignItems: isRTL ? 'flex-end' : 'flex-start' }]}>
-                      <Text style={[styles.transferListName, { fontFamily: headlineFont }]}>
-                        {pick.player?.web_name}
-                      </Text>
-                      <Text style={[styles.transferListMeta, { fontFamily: monoFont }]}>
-                        {POSITION_SHORT[pick.player?.element_type || 1]} • {teamsMap.get(pick.player?.team || 0) || DEFAULT_TEAMS_MAP.get(pick.player?.team || 0) || 'PL'} • £{((pick.player?.now_cost || 0) / 10).toFixed(1)}m
-                      </Text>
-                    </View>
-
-                    <TouchableOpacity
-                      style={styles.replaceBtn}
-                      onPress={() => setTransferPickerPick({ pick, index })}
-                    >
-                      <MaterialIcons name="swap-horiz" size={18} color={Colors.brandPurple} />
-                      <Text style={[styles.replaceBtnText, { fontFamily: labelFont }]}>
-                        {isArabic ? 'استبدال' : 'Replace'}
-                      </Text>
-                    </TouchableOpacity>
+                <View style={styles.pitchContent}>
+                  {/* GK Row */}
+                  <View style={styles.pitchRow}>
+                    {gks.map((pick) => {
+                      const realIndex = picks.findIndex(p => p.element === pick.element);
+                      const isStaged = stagedTransfers.some(st => st.element_in.id === pick.element);
+                      return (
+                        <PitchPlayerCard
+                          key={pick.element}
+                          pick={pick}
+                          teamsMap={teamsMap}
+                          fixtures={fixtures}
+                          targetGw={targetGw}
+                          isArabic={isArabic}
+                          badgeMode="price"
+                          isNewlyStaged={isStaged}
+                          isSelected={false}
+                          onPress={() => setTransferPickerPick({ pick, index: realIndex })}
+                        />
+                      );
+                    })}
                   </View>
-                ))}
+
+                  {/* DEF Row */}
+                  <View style={styles.pitchRow}>
+                    {defs.map((pick) => {
+                      const realIndex = picks.findIndex(p => p.element === pick.element);
+                      const isStaged = stagedTransfers.some(st => st.element_in.id === pick.element);
+                      return (
+                        <PitchPlayerCard
+                          key={pick.element}
+                          pick={pick}
+                          teamsMap={teamsMap}
+                          fixtures={fixtures}
+                          targetGw={targetGw}
+                          isArabic={isArabic}
+                          badgeMode="price"
+                          isNewlyStaged={isStaged}
+                          isSelected={false}
+                          onPress={() => setTransferPickerPick({ pick, index: realIndex })}
+                        />
+                      );
+                    })}
+                  </View>
+
+                  {/* MID Row */}
+                  <View style={styles.pitchRow}>
+                    {mids.map((pick) => {
+                      const realIndex = picks.findIndex(p => p.element === pick.element);
+                      const isStaged = stagedTransfers.some(st => st.element_in.id === pick.element);
+                      return (
+                        <PitchPlayerCard
+                          key={pick.element}
+                          pick={pick}
+                          teamsMap={teamsMap}
+                          fixtures={fixtures}
+                          targetGw={targetGw}
+                          isArabic={isArabic}
+                          badgeMode="price"
+                          isNewlyStaged={isStaged}
+                          isSelected={false}
+                          onPress={() => setTransferPickerPick({ pick, index: realIndex })}
+                        />
+                      );
+                    })}
+                  </View>
+
+                  {/* FWD Row */}
+                  <View style={styles.pitchRow}>
+                    {fwds.map((pick) => {
+                      const realIndex = picks.findIndex(p => p.element === pick.element);
+                      const isStaged = stagedTransfers.some(st => st.element_in.id === pick.element);
+                      return (
+                        <PitchPlayerCard
+                          key={pick.element}
+                          pick={pick}
+                          teamsMap={teamsMap}
+                          fixtures={fixtures}
+                          targetGw={targetGw}
+                          isArabic={isArabic}
+                          badgeMode="price"
+                          isNewlyStaged={isStaged}
+                          isSelected={false}
+                          onPress={() => setTransferPickerPick({ pick, index: realIndex })}
+                        />
+                      );
+                    })}
+                  </View>
+                </View>
+              </View>
+
+              {/* Bench Section with all 4 substitutes (Transfer Mode: Price Badge & Tap to replace) */}
+              <View style={styles.benchCard}>
+                <View style={[styles.benchHeaderRow, { flexDirection: flexDir }]}>
+                  <Text style={[styles.benchSectionTitle, { fontFamily: headlineFont }]}>
+                    {isArabic ? 'بدلاء الدكة' : 'Bench Substitutes'}
+                  </Text>
+                  <Text style={[styles.benchSubText, { fontFamily: monoFont }]}>
+                    {isArabic ? 'اضغط للاستبدال' : 'Tap to replace'}
+                  </Text>
+                </View>
+
+                <View style={[styles.benchRow, { flexDirection: flexDir }]}>
+                  {bench.map((pick, bIndex) => {
+                    const realIndex = 11 + bIndex;
+                    const isStaged = stagedTransfers.some(st => st.element_in.id === pick.element);
+                    return (
+                      <BenchPlayerCard
+                        key={pick.element}
+                        pick={pick}
+                        benchIndex={bIndex + 1}
+                        teamsMap={teamsMap}
+                        fixtures={fixtures}
+                        targetGw={targetGw}
+                        isArabic={isArabic}
+                        badgeMode="price"
+                        isNewlyStaged={isStaged}
+                        isSelected={false}
+                        onPress={() => setTransferPickerPick({ pick, index: realIndex })}
+                      />
+                    );
+                  })}
+                </View>
               </View>
             </>
           )}
@@ -1544,6 +1930,19 @@ function PlayerGameweekHistoryStrip({
   );
 }
 
+function getPointsBadgeBg(pts: number): string {
+  if (pts >= 7) return '#00FF87';
+  if (pts >= 3) return '#FBBF24';
+  if (pts < 0) return '#FF6B6B';
+  return 'rgba(255, 255, 255, 0.18)';
+}
+
+function getPointsTextColor(pts: number): string {
+  if (pts >= 7) return '#1E0021';
+  if (pts >= 3) return '#1E0021';
+  return '#FFFFFF';
+}
+
 // ── SUB-COMPONENT: Pitch Player Card ──────────────────────────────────────────
 function PitchPlayerCard({
   pick,
@@ -1552,6 +1951,9 @@ function PitchPlayerCard({
   targetGw,
   isArabic,
   isSelected = false,
+  isNewlyStaged = false,
+  badgeMode = 'fixture',
+  points,
   onPress,
 }: {
   pick: FPLPick;
@@ -1560,6 +1962,9 @@ function PitchPlayerCard({
   targetGw: number;
   isArabic: boolean;
   isSelected?: boolean;
+  isNewlyStaged?: boolean;
+  badgeMode?: 'fixture' | 'points' | 'price';
+  points?: number;
   onPress: () => void;
 }) {
   const [imgError, setImgError] = useState(false);
@@ -1584,11 +1989,19 @@ function PitchPlayerCard({
       style={[
         styles.pitchCardRoot,
         isSelected && styles.pitchCardSelected,
+        isNewlyStaged && styles.pitchCardStagedGlow,
         pick.is_captain && styles.pitchCardCaptainGlow,
       ]}
       onPress={onPress}
       activeOpacity={0.8}
     >
+      {/* Newly Staged Tag (IN ✨) */}
+      {isNewlyStaged && (
+        <View style={styles.newStagedBadge}>
+          <Text style={styles.newStagedText}>{isArabic ? 'جديد ✨' : 'IN ✨'}</Text>
+        </View>
+      )}
+
       {/* Player Photo with Overlay Badges */}
       <View style={styles.photoWrapper}>
         {imgError ? (
@@ -1629,8 +2042,22 @@ function PitchPlayerCard({
         <Text style={styles.chipTeam} numberOfLines={1}>{teamCode}</Text>
       </View>
 
-      {/* Fixture Tag below player's name */}
-      <FixtureTagPill fixtures={teamFixtures} isArabic={isArabic} />
+      {/* Bottom Tag: Points, Price, or Fixture */}
+      {badgeMode === 'points' ? (
+        <View style={[styles.pointsBadge, { backgroundColor: getPointsBadgeBg(points ?? 0) }]}>
+          <Text style={[styles.pointsBadgeText, { color: getPointsTextColor(points ?? 0) }]}>
+            {points ?? 0} pts
+          </Text>
+        </View>
+      ) : badgeMode === 'price' ? (
+        <View style={styles.priceTagBadge}>
+          <Text style={styles.priceTagText}>
+            £{((player?.now_cost || 0) / 10).toFixed(1)}m
+          </Text>
+        </View>
+      ) : (
+        <FixtureTagPill fixtures={teamFixtures} isArabic={isArabic} />
+      )}
     </TouchableOpacity>
   );
 }
@@ -1644,6 +2071,9 @@ function BenchPlayerCard({
   targetGw,
   isArabic,
   isSelected = false,
+  isNewlyStaged = false,
+  badgeMode = 'fixture',
+  points,
   onPress,
 }: {
   pick: FPLPick;
@@ -1653,6 +2083,9 @@ function BenchPlayerCard({
   targetGw: number;
   isArabic: boolean;
   isSelected?: boolean;
+  isNewlyStaged?: boolean;
+  badgeMode?: 'fixture' | 'points' | 'price';
+  points?: number;
   onPress: () => void;
 }) {
   const [imgError, setImgError] = useState(false);
@@ -1677,6 +2110,7 @@ function BenchPlayerCard({
       style={[
         styles.benchCardRoot,
         isSelected && styles.pitchCardSelected,
+        isNewlyStaged && styles.pitchCardStagedGlow,
         isDoubtful && styles.benchCardDoubtful,
       ]}
       onPress={onPress}
@@ -1686,6 +2120,13 @@ function BenchPlayerCard({
       <View style={styles.benchOrderBadge}>
         <Text style={styles.benchOrderText}>{benchIndex}</Text>
       </View>
+
+      {/* Newly Staged Tag (IN ✨) */}
+      {isNewlyStaged && (
+        <View style={styles.newStagedBadge}>
+          <Text style={styles.newStagedText}>{isArabic ? 'جديد ✨' : 'IN ✨'}</Text>
+        </View>
+      )}
 
       <View style={styles.benchPhotoWrapper}>
         {imgError ? (
@@ -1711,8 +2152,22 @@ function BenchPlayerCard({
         <Text style={styles.benchMeta} numberOfLines={1}>{POSITION_SHORT[player?.element_type || 1]} • {teamCode}</Text>
       </View>
 
-      {/* Fixture Tag below player's name */}
-      <FixtureTagPill fixtures={teamFixtures} isArabic={isArabic} />
+      {/* Bottom Tag: Points, Price, or Fixture */}
+      {badgeMode === 'points' ? (
+        <View style={[styles.pointsBadge, { backgroundColor: getPointsBadgeBg(points ?? 0) }]}>
+          <Text style={[styles.pointsBadgeText, { color: getPointsTextColor(points ?? 0) }]}>
+            {points ?? 0} pts
+          </Text>
+        </View>
+      ) : badgeMode === 'price' ? (
+        <View style={styles.priceTagBadge}>
+          <Text style={styles.priceTagText}>
+            £{((player?.now_cost || 0) / 10).toFixed(1)}m
+          </Text>
+        </View>
+      ) : (
+        <FixtureTagPill fixtures={teamFixtures} isArabic={isArabic} />
+      )}
     </TouchableOpacity>
   );
 }
@@ -2762,5 +3217,146 @@ const styles = StyleSheet.create({
   },
   costDown: {
     color: Colors.brandTeal,
+  },
+
+  // ── Points View Styles ──
+  pointsGwSelectorRow: {
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 4,
+    marginBottom: 12,
+  },
+  gwArrowBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  gwTitleBadge: {
+    alignItems: 'center',
+    gap: 2,
+  },
+  pointsGwTitleText: {
+    color: Colors.white,
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  pointsGwSubText: {
+    color: Colors.brandTeal,
+    fontSize: 11,
+    letterSpacing: 0.5,
+  },
+  pointsHeroStatsRow: {
+    gap: 10,
+  },
+  pointsHeroCard: {
+    flex: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderRadius: Radii.xl,
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.07)',
+  },
+  pointsHeroCardMain: {
+    backgroundColor: 'rgba(0, 255, 135, 0.08)',
+    borderColor: 'rgba(0, 255, 135, 0.25)',
+  },
+  pointsHeroLabel: {
+    color: Colors.onSurfaceVariant,
+    fontSize: 11,
+    letterSpacing: 0.5,
+    marginBottom: 4,
+  },
+  pointsHeroMainVal: {
+    color: Colors.brandTeal,
+    fontSize: 36,
+    fontWeight: '800',
+    lineHeight: 40,
+  },
+  pointsHeroBenchVal: {
+    color: Colors.white,
+    fontSize: 28,
+    fontWeight: '700',
+    lineHeight: 34,
+  },
+  pointsHeroSubText: {
+    color: Colors.onSurfaceVariant,
+    fontSize: 10,
+    marginTop: 4,
+  },
+
+  // ── Card Badges ──
+  pointsBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: Radii.default,
+    marginTop: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 46,
+  },
+  pointsBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  priceTagBadge: {
+    backgroundColor: 'rgba(0, 255, 135, 0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(0, 255, 135, 0.35)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: Radii.default,
+    marginTop: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  priceTagText: {
+    color: Colors.brandTeal,
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  newStagedBadge: {
+    position: 'absolute',
+    top: -6,
+    left: -6,
+    backgroundColor: Colors.brandTeal,
+    borderRadius: Radii.full,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    zIndex: 10,
+    elevation: 4,
+  },
+  newStagedText: {
+    color: Colors.brandPurple,
+    fontSize: 9,
+    fontWeight: '800',
+  },
+  pitchCardStagedGlow: {
+    borderColor: Colors.brandTeal,
+    borderWidth: 2,
+    shadowColor: Colors.brandTeal,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.6,
+    shadowRadius: 8,
+  },
+  transfersInstructionBanner: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(0, 255, 135, 0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(0, 255, 135, 0.2)',
+    borderRadius: Radii.lg,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+  },
+  transfersInstructionText: {
+    color: Colors.brandTeal,
+    fontSize: 12,
+    flex: 1,
   },
 });

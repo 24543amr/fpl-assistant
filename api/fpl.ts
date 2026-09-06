@@ -222,10 +222,7 @@ export function getPlayerPhotoUrl(player?: FPLPlayer | null, elementId?: number)
     ? player.photo.replace('.jpg', '')
     : String(player?.code || elementId || '');
   if (!photoCode) return '';
-  const fullName = player ? `${player.first_name || ''} ${player.second_name || ''}`.trim() || player.web_name : '';
-  const candidateUrls = getBackendCandidateUrls();
-  const backendBase = candidateUrls[0] || 'http://localhost:3001';
-  return `${backendBase}/api/fpl/player-photo/${photoCode}?name=${encodeURIComponent(fullName)}&v=sportsdb_v2`;
+  return `https://resources.premierleague.com/premierleague/photos/players/110x140/p${photoCode}.png`;
 }
 
 export interface FPLTeam {
@@ -759,4 +756,37 @@ export async function fetchElementSummary(playerId: number | string): Promise<FP
   }
   return response.json();
 }
+
+export interface FPLLiveElement {
+  id: number;
+  stats: {
+    total_points: number;
+    minutes?: number;
+    goals_scored?: number;
+    assists?: number;
+    bonus?: number;
+    bps?: number;
+  };
+}
+
+/**
+ * Fetch real live points for all players in a specific gameweek.
+ */
+export async function fetchGameweekLive(gameweek: number): Promise<Map<number, number>> {
+  try {
+    const response = await backendFetch(`/api/fpl/event/${gameweek}/live?_t=${Date.now()}`);
+    if (response.ok) {
+      const payload = await response.json() as { elements?: FPLLiveElement[] };
+      const map = new Map<number, number>();
+      for (const el of payload.elements || []) {
+        map.set(el.id, el.stats?.total_points ?? 0);
+      }
+      return map;
+    }
+  } catch (e) {
+    console.warn('[fetchGameweekLive] Failed to fetch live points:', e);
+  }
+  return new Map();
+}
+
 

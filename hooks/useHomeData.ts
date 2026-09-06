@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import {
   fetchBootstrap,
   fetchUserEntry,
@@ -30,20 +30,29 @@ export interface HomeDataState {
   refetch: (isSilent?: boolean) => Promise<void>;
 }
 
+interface HomeMemoryCache {
+  entry: FPLUserEntry | null; currentGw: number; nextGw: number; nextDeadlineIso: string | null;
+  picks: FPLPick[]; captainSuggestion: CaptainSuggestion | null; aiInsight: AiInsight | null;
+  activeTeamId: string; authMode: 'FPL Login' | 'Team ID'; lastFetched: string | null;
+}
+
+// Persists for this app session, so tab navigation never causes a loading flash.
+let homeMemoryCache: HomeMemoryCache | null = null;
+
 export function useHomeData(): HomeDataState {
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(!homeMemoryCache);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [entry, setEntry] = useState<FPLUserEntry | null>(null);
-  const [currentGw, setCurrentGw] = useState(0);
-  const [nextGw, setNextGw] = useState(0);
-  const [nextDeadlineIso, setNextDeadlineIso] = useState<string | null>(null);
-  const [picks, setPicks] = useState<FPLPick[]>([]);
-  const [captainSuggestion, setCaptainSuggestion] = useState<CaptainSuggestion | null>(null);
-  const [aiInsight, setAiInsight] = useState<AiInsight | null>(null);
-  const [activeTeamId, setActiveTeamId] = useState('');
-  const [authMode, setAuthMode] = useState<'FPL Login' | 'Team ID'>('Team ID');
-  const [lastFetched, setLastFetched] = useState<string | null>(null);
+  const [entry, setEntry] = useState<FPLUserEntry | null>(homeMemoryCache?.entry || null);
+  const [currentGw, setCurrentGw] = useState(homeMemoryCache?.currentGw || 0);
+  const [nextGw, setNextGw] = useState(homeMemoryCache?.nextGw || 0);
+  const [nextDeadlineIso, setNextDeadlineIso] = useState<string | null>(homeMemoryCache?.nextDeadlineIso || null);
+  const [picks, setPicks] = useState<FPLPick[]>(homeMemoryCache?.picks || []);
+  const [captainSuggestion, setCaptainSuggestion] = useState<CaptainSuggestion | null>(homeMemoryCache?.captainSuggestion || null);
+  const [aiInsight, setAiInsight] = useState<AiInsight | null>(homeMemoryCache?.aiInsight || null);
+  const [activeTeamId, setActiveTeamId] = useState(homeMemoryCache?.activeTeamId || '');
+  const [authMode, setAuthMode] = useState<'FPL Login' | 'Team ID'>(homeMemoryCache?.authMode || 'Team ID');
+  const [lastFetched, setLastFetched] = useState<string | null>(homeMemoryCache?.lastFetched || null);
 
   // Track if at least one successful load has completed
   const hasLoadedOnce = useRef(false);
@@ -117,7 +126,9 @@ export function useHomeData(): HomeDataState {
         }
       }
 
-      setLastFetched(new Date().toLocaleTimeString());
+      const fetchedAt = new Date().toLocaleTimeString();
+      setLastFetched(fetchedAt);
+      homeMemoryCache = { entry: freshEntry, currentGw: currentEvent.id, nextGw: nextEvent.id, nextDeadlineIso: nextEvent.deadline_time || null, picks: picksResult || picks, captainSuggestion: captain, aiInsight: insight, activeTeamId: teamId, authMode: mode, lastFetched: fetchedAt };
     } catch (cause: any) {
       console.error('[useHomeData] Error during fetch:', cause?.message);
       // NEVER clear existing picks/data if we already have them!
@@ -130,6 +141,10 @@ export function useHomeData(): HomeDataState {
       setIsRefreshing(false);
     }
   }, []);
+
+  useEffect(() => {
+    if (!homeMemoryCache) void refetch();
+  }, [refetch]);
 
   return { isLoading, isRefreshing, error, entry, currentGw, nextGw, nextDeadlineIso, picks, captainSuggestion, aiInsight, activeTeamId, authMode, lastFetched, refetch };
 }

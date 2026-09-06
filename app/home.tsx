@@ -22,7 +22,6 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useFocusEffect } from '@react-navigation/native';
 
 import { Colors, FontSizes, Radii, Spacing } from '@/constants/theme';
 import { useHomeData } from '@/hooks/useHomeData';
@@ -151,8 +150,7 @@ export default function HomeScreen() {
     setRefreshing(false);
   }, [refetch]);
 
-  // Force a quiet background live fetch on every Home screen focus (not just mount)
-  useFocusEffect(useCallback(() => { void refetch(true); }, [refetch]));
+  // Data is held in the session cache; refresh is explicit rather than triggered by tab navigation.
 
   // Live timer for deadline
   const [countdownStr, setCountdownStr] = useState<string>('');

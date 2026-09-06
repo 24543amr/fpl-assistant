@@ -335,6 +335,18 @@ app.get('/api/fpl/picks/:teamId/:gw', async (req, res) => {
   }
 });
 
+app.get('/api/fpl/event/:gw/live', async (req, res) => {
+  noStore(res);
+  if (!/^\d+$/.test(req.params.gw)) return res.status(400).json({ error: 'Invalid gameweek.' });
+  try {
+    const { client } = createFplClient();
+    const response = await client.get(`${FPL_BASE}/event/${req.params.gw}/live/`);
+    return res.json(response.data);
+  } catch (error) {
+    return res.status(error.response?.status || 502).json({ error: 'Failed to fetch live gameweek points.' });
+  }
+});
+
 // ── GET /api/fpl/element-summary/:playerId ──────────────────────────────────
 app.get('/api/fpl/element-summary/:playerId', async (req, res) => {
   noStore(res);
