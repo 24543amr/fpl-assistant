@@ -28,6 +28,7 @@ import { useHomeData } from '@/hooks/useHomeData';
 import { FPLPick, getPlayerPhotoUrl } from '@/api/fpl';
 import AppHeader from '@/components/AppHeader';
 import BottomNav from '@/components/BottomNav';
+import SpinningRefreshButton from '@/components/SpinningRefreshButton';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 
@@ -207,6 +208,13 @@ export default function HomeScreen() {
         showNotificationBell
         avatarUrl={avatarUrl}
         onAvatarPress={() => router.push('/profile')}
+        rightAction={
+          <SpinningRefreshButton
+            onRefresh={() => refetch(true)}
+            isArabic={isArabic}
+            isRefreshing={isRefreshing}
+          />
+        }
       />
 
       {/* ── Scrollable Body ── */}
