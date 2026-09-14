@@ -429,6 +429,8 @@ export interface AiChatMessage {
 export interface ReferencedPlayer {
   id: number;
   code: number;
+  photo_code?: number | string;
+  name?: string;
   web_name: string;
   first_name: string;
   second_name: string;

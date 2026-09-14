@@ -1501,6 +1501,131 @@ Return ONLY a valid JSON object matching this schema:
   return res.json({ ...responseData, cached: false });
 });
 
+const ARABIC_PLAYER_ALIASES = {
+  'هالاند': 'Haaland',
+  'هالند': 'Haaland',
+  'صلاح': 'Salah',
+  'محمد صلاح': 'Salah',
+  'ساكا': 'Saka',
+  'بالمر': 'Palmer',
+  'كول بالمر': 'Palmer',
+  'سون': 'Son',
+  'كالافيوري': 'Calafiori',
+  'كالافيورى': 'Calafiori',
+  'رايا': 'Raya',
+  'أليسون': 'A.Becker',
+  'اليسون': 'A.Becker',
+  'بيكر': 'A.Becker',
+  'واتكينز': 'Watkins',
+  'إيزاك': 'Isak',
+  'ايزاك': 'Isak',
+  'فودين': 'Foden',
+  'دي بروين': 'De Bruyne',
+  'ديبروين': 'De Bruyne',
+  'برونو': 'B.Fernandes',
+  'فيرنانديز': 'B.Fernandes',
+  'جفارديول': 'Gvardiol',
+  'غفارديول': 'Gvardiol',
+  'مارتينيلي': 'Martinelli',
+  'هافرتز': 'Havertz',
+  'هافيرتز': 'Havertz',
+  'غابرييل': 'Gabriel',
+  'جبريل': 'Gabriel',
+  'سوبوسلاي': 'Szoboszlai',
+  'سولانكي': 'Solanke',
+  'إيزي': 'Eze',
+  'ايزي': 'Eze',
+  'مبيومو': 'Mbeumo',
+  'فان دايك': 'Virgil',
+  'بيكفورد': 'Pickford',
+  'مارتينيز': 'E.Martínez',
+  'أوديجارد': 'Ødegaard',
+  'اوديجارد': 'Ødegaard',
+  'تريبير': 'Trippier',
+  'جوردون': 'Gordon',
+  'بوين': 'Bowen',
+  'دياز': 'Luis Díaz',
+  'فيرتز': 'Wirtz',
+  'ويرتز': 'Wirtz',
+  'ماديسون': 'Maddison',
+  'كونسا': 'Konsa',
+  'بيدرو': 'João Pedro',
+  'جاكسون': 'Jackson',
+  'نكونكو': 'Nkunku',
+  'رودري': 'Rodri',
+  'بيرناردو': 'Bernardo',
+  'دالوت': 'Dalot',
+  'ماجواير': 'Maguire',
+  'أونانا': 'Onana',
+  'اونانا': 'Onana',
+};
+
+function escapeRegex(str) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function findReferencedPlayer(userMessage, aiReply, elements) {
+  if (!elements || elements.length === 0) return null;
+
+  // 1. Check Arabic aliases in userMessage or aiReply
+  for (const [arName, enName] of Object.entries(ARABIC_PLAYER_ALIASES)) {
+    if ((userMessage && userMessage.includes(arName)) || (aiReply && aiReply.includes(arName))) {
+      const p = elements.find(el => el.web_name && el.web_name.toLowerCase() === enName.toLowerCase()) ||
+                elements.find(el => el.second_name && el.second_name.toLowerCase() === enName.toLowerCase());
+      if (p) return p;
+    }
+  }
+
+  // Sort candidate elements by web_name length descending (so 'De Bruyne' matches before 'De')
+  const sortedByLen = [...elements]
+    .filter(el => el.web_name && el.web_name.length >= 3)
+    .sort((a, b) => (b.web_name?.length || 0) - (a.web_name?.length || 0));
+
+  // Priority 1: Exact match in BOTH userMessage AND aiReply
+  if (userMessage && aiReply) {
+    for (const el of sortedByLen) {
+      const re = new RegExp(`\\b${escapeRegex(el.web_name)}\\b`, 'i');
+      if (re.test(userMessage) && re.test(aiReply)) {
+        return el;
+      }
+    }
+  }
+
+  // Priority 2: Mentioned in aiReply (earliest occurrence in text)
+  if (aiReply) {
+    let earliestMatch = null;
+    let earliestIndex = Infinity;
+
+    for (const el of sortedByLen) {
+      const re = new RegExp(`\\b${escapeRegex(el.web_name)}\\b`, 'i');
+      const match = re.exec(aiReply);
+      if (match && match.index < earliestIndex) {
+        earliestIndex = match.index;
+        earliestMatch = el;
+      }
+    }
+    if (earliestMatch) return earliestMatch;
+  }
+
+  // Priority 3: Mentioned in userMessage (earliest occurrence in text)
+  if (userMessage) {
+    let earliestMatch = null;
+    let earliestIndex = Infinity;
+
+    for (const el of sortedByLen) {
+      const re = new RegExp(`\\b${escapeRegex(el.web_name)}\\b`, 'i');
+      const match = re.exec(userMessage);
+      if (match && match.index < earliestIndex) {
+        earliestIndex = match.index;
+        earliestMatch = el;
+      }
+    }
+    if (earliestMatch) return earliestMatch;
+  }
+
+  return null;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /api/ai/chat
 // Body: { teamId, message, conversationHistory }
@@ -1642,10 +1767,7 @@ Guidelines:
     // 3. If AI replied successfully, find referenced player card
     if (reply) {
       if (elements.length > 0) {
-        const found = elements
-          .filter(el => el.web_name && el.web_name.length >= 4 && reply.toLowerCase().includes(el.web_name.toLowerCase()))
-          .sort((a, b) => (b.total_points || 0) - (a.total_points || 0))[0];
-        if (found) referencedPlayer = found;
+        referencedPlayer = findReferencedPlayer(message, reply, elements);
       }
 
       let playerPayload = null;
@@ -1653,6 +1775,8 @@ Guidelines:
         playerPayload = {
           id: referencedPlayer.id,
           code: referencedPlayer.code,
+          photo_code: referencedPlayer.code,
+          name: referencedPlayer.web_name,
           web_name: referencedPlayer.web_name,
           first_name: referencedPlayer.first_name,
           second_name: referencedPlayer.second_name,
@@ -1663,6 +1787,7 @@ Guidelines:
           now_cost: referencedPlayer.now_cost || 0,
           total_points: referencedPlayer.total_points || 0,
         };
+        console.log(`[AI Chat] 👤 Referenced Player: "${playerPayload.web_name}" (code=${playerPayload.code}, id=${playerPayload.id})`);
       }
 
       return res.json({

@@ -29,6 +29,7 @@ import {
 } from '@/api/fpl';
 import AppHeader from '@/components/AppHeader';
 import BottomNav from '@/components/BottomNav';
+import PlayerCard from '@/components/PlayerCard';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -588,58 +589,18 @@ export default function AiScreen() {
                         {msg.text}
                       </Text>
 
-                      {/* Embedded Player Card */}
+                      {/* Embedded Player Card (Memoized) */}
                       {!!msg.referencedPlayer && (
-                        <View style={styles.embeddedCard}>
-                          <View style={[styles.playerCardRow, { flexDirection: flexDir }]}>
-                            {/* Photo */}
-                            <Image
-                              source={{
-                                uri: getPlayerPhotoUrl(msg.referencedPlayer as any, msg.referencedPlayer.code),
-                              }}
-                              style={styles.playerAvatar}
-                            />
-
-                            {/* Player Info */}
-                            <View style={[styles.playerInfoCol, { alignItems: isRTL ? 'flex-end' : 'flex-start' }]}>
-                              <Text style={[styles.playerName, { fontFamily: headlineFont }]}>
-                                {msg.referencedPlayer.web_name}
-                              </Text>
-                              <Text style={[styles.playerMeta, { fontFamily: monoFont }]}>
-                                {POSITION_NAMES[msg.referencedPlayer.element_type] || 'MID'} • {msg.referencedPlayer.team_short || 'PL'}
-                              </Text>
-
-                              <View style={[styles.tagsRow, { flexDirection: flexDir }]}>
-                                <View style={styles.formTag}>
-                                  <Text style={[styles.formTagText, { fontFamily: monoFont }]}>
-                                    Form: {msg.referencedPlayer.form}
-                                  </Text>
-                                </View>
-                                <View style={styles.costTag}>
-                                  <Text style={[styles.costTagText, { fontFamily: monoFont }]}>
-                                    £{(msg.referencedPlayer.now_cost / 10).toFixed(1)}m
-                                  </Text>
-                                </View>
-                              </View>
-                            </View>
-
-                            {/* View Button */}
-                            <TouchableOpacity
-                              style={[styles.viewBtn, { flexDirection: flexDir }]}
-                              onPress={() => router.push('/squad')}
-                              activeOpacity={0.7}
-                            >
-                              <Text style={[styles.viewBtnText, { fontFamily: labelFont }]}>
-                                {isArabic ? 'عرض' : 'View'}
-                              </Text>
-                              <MaterialIcons
-                                name={isRTL ? 'arrow-back' : 'arrow-forward'}
-                                size={14}
-                                color={Colors.brandPurple}
-                              />
-                            </TouchableOpacity>
-                          </View>
-                        </View>
+                        <PlayerCard
+                          key={`player-card-${msg.id}-${msg.referencedPlayer.code || msg.referencedPlayer.id}`}
+                          player={msg.referencedPlayer}
+                          isRTL={isRTL}
+                          isArabic={isArabic}
+                          headlineFont={headlineFont}
+                          monoFont={monoFont}
+                          labelFont={labelFont}
+                          onViewSquad={() => router.push('/squad')}
+                        />
                       )}
                     </View>
                     <Text style={[styles.timestampText, { fontFamily: monoFont }]}>
