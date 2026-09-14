@@ -120,6 +120,7 @@ export default function RootLayout() {
         <Stack.Screen name="league-detail" />
         <Stack.Screen name="player-switch" />
         <Stack.Screen name="profile" />
+        <Stack.Screen name="manager-profile" />
       </Stack>
     </>
   );

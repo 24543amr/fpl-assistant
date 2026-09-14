@@ -794,4 +794,165 @@ export async function fetchGameweekLive(gameweek: number): Promise<Map<number, n
   return new Map();
 }
 
+// ── MANAGER PROFILE TYPES & API ──────────────────────────────────────────────
+
+export interface FPLChipHistory {
+  name: string;
+  time: string;
+  event: number;
+}
+
+export interface FPLEventHistory {
+  event: number;
+  points: number;
+  total_points: number;
+  rank: number;
+  rank_sort: number;
+  overall_rank: number;
+  percentile_rank?: number;
+  bank: number;
+  value: number;
+  event_transfers: number;
+  event_transfers_cost: number;
+  points_on_bench: number;
+}
+
+export interface FPLEntryHistoryData {
+  current: FPLEventHistory[];
+  past: any[];
+  chips: FPLChipHistory[];
+}
+
+export interface FPLClassicLeagueMembership {
+  id: number;
+  name: string;
+  short_name?: string;
+  created: string;
+  closed: boolean;
+  rank: number | null;
+  max_entries: number | null;
+  league_type: string;
+  scoring: string;
+  admin_entry: number | null;
+  start_event: number;
+  entry_can_admin: boolean;
+  entry_can_invite: boolean;
+  entry_can_leave: boolean;
+  entry_rank: number;
+  entry_last_rank: number;
+  entry_percentile_rank?: number;
+  rank_count?: number;
+  has_cup?: boolean;
+  cup_league?: number | null;
+}
+
+export interface FPLCupMatch {
+  id: number;
+  entry_1_entry: number;
+  entry_1_name: string;
+  entry_1_player_name: string;
+  entry_1_points: number;
+  entry_1_win: number;
+  entry_1_loss: number;
+  entry_1_draw: number;
+  entry_2_entry: number;
+  entry_2_name: string;
+  entry_2_player_name: string;
+  entry_2_points: number;
+  entry_2_win: number;
+  entry_2_loss: number;
+  entry_2_draw: number;
+  is_knockout: boolean;
+  winner: number;
+  seed_value: number | null;
+  event: number;
+  tiebreak: any;
+  is_bye: boolean;
+  knockout_name: string;
+}
+
+export interface FPLCupStatus {
+  qualification_event: number | null;
+  qualification_numbers: number | null;
+  qualification_rank: number | null;
+  qualification_state: string | null;
+}
+
+export interface FPLCupData {
+  matches: FPLCupMatch[];
+  status: FPLCupStatus;
+  cup_league: number | null;
+}
+
+export interface FPLEntryLeaguesData {
+  classic: FPLClassicLeagueMembership[];
+  h2h: any[];
+  cup: FPLCupData | null;
+  cup_matches?: FPLCupMatch[];
+}
+
+export interface ManagerSquadPicksResult {
+  picks: FPLPick[];
+  active_chip?: string | null;
+  entry_history?: FPLEventHistory | null;
+}
+
+/**
+ * Fetch manager squad picks with active_chip and entry_history.
+ */
+export async function fetchManagerSquadPicks(
+  teamId: string | number,
+  gw: number,
+  elementsMap?: Map<number, FPLPlayer>,
+): Promise<ManagerSquadPicksResult> {
+  const response = await backendFetch(`/api/fpl/picks/${encodeURIComponent(String(teamId))}/${gw}?_t=${Date.now()}`);
+  if (!response.ok) {
+    throw new Error('Could not fetch manager picks.');
+  }
+  const data = await response.json();
+  const picks = (data.picks || []).map((pick: any) => ({
+    ...pick,
+    player: elementsMap?.get(pick.element),
+  }));
+  return {
+    picks,
+    active_chip: data.active_chip || null,
+    entry_history: data.entry_history || null,
+  };
+}
+
+/**
+ * Fetch manager full history including season chips and GW breakdown.
+ */
+export async function fetchEntryHistory(teamId: string | number): Promise<FPLEntryHistoryData> {
+  const response = await backendFetch(`/api/fpl/entry/${encodeURIComponent(String(teamId))}/history?_t=${Date.now()}`);
+  if (!response.ok) {
+    throw new Error('Could not fetch entry history.');
+  }
+  return response.json();
+}
+
+/**
+ * Fetch manager leagues and cups.
+ */
+export async function fetchEntryLeagues(teamId: string | number): Promise<FPLEntryLeaguesData> {
+  const response = await backendFetch(`/api/fpl/entry/${encodeURIComponent(String(teamId))}/leagues?_t=${Date.now()}`);
+  if (!response.ok) {
+    throw new Error('Could not fetch entry leagues.');
+  }
+  return response.json();
+}
+
+export interface ManagerProfileCacheItem {
+  entry: FPLUserEntry;
+  picks: FPLPick[];
+  activeChip: string | null;
+  entryHistory: FPLEventHistory | null;
+  leagues: FPLEntryLeaguesData;
+  chips: FPLChipHistory[];
+  timestamp: number;
+}
+
+export const managerProfileCache = new Map<string, ManagerProfileCacheItem>();
+
 

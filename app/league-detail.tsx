@@ -368,12 +368,23 @@ export default function LeagueDetailScreen() {
             const initials = getInitials(item.player_name);
 
             return (
-              <View
+              <TouchableOpacity
                 style={[
                   styles.standingRow,
                   isUser && styles.userStandingRow,
                   { flexDirection: flexDir },
                 ]}
+                activeOpacity={0.7}
+                onPress={() => {
+                  router.push({
+                    pathname: '/manager-profile',
+                    params: {
+                      entryId: String(item.entry),
+                      managerName: item.player_name,
+                      teamName: item.entry_name,
+                    },
+                  });
+                }}
               >
                 {/* Rank & Movement Badge */}
                 <View style={styles.rankBadgeCol}>
@@ -439,7 +450,7 @@ export default function LeagueDetailScreen() {
                     {isArabic ? 'نقطة' : 'pts'}
                   </Text>
                 </View>
-              </View>
+              </TouchableOpacity>
             );
           }}
           ListFooterComponent={

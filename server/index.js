@@ -323,6 +323,33 @@ app.get('/api/fpl/entry/:teamId', async (req, res) => {
   }
 });
 
+// ── GET /api/fpl/entry/:teamId/history ──────────────────────────────────────
+app.get('/api/fpl/entry/:teamId/history', async (req, res) => {
+  noStore(res);
+  if (!validTeamId(req.params.teamId)) return res.status(400).json({ error: 'Invalid Team ID.' });
+  try {
+    const { client } = createFplClient();
+    const response = await client.get(`${FPL_BASE}/entry/${req.params.teamId}/history/`);
+    return res.json(response.data);
+  } catch (error) {
+    return res.status(error.response?.status === 404 ? 404 : 502).json({ error: 'History for this Team ID could not be found.' });
+  }
+});
+
+// ── GET /api/fpl/entry/:teamId/leagues ──────────────────────────────────────
+app.get('/api/fpl/entry/:teamId/leagues', async (req, res) => {
+  noStore(res);
+  if (!validTeamId(req.params.teamId)) return res.status(400).json({ error: 'Invalid Team ID.' });
+  try {
+    const { client } = createFplClient();
+    const response = await client.get(`${FPL_BASE}/entry/${req.params.teamId}/`);
+    return res.json(response.data?.leagues || { classic: [], h2h: [], cup: null });
+  } catch (error) {
+    return res.status(error.response?.status === 404 ? 404 : 502).json({ error: 'Leagues for this Team ID could not be found.' });
+  }
+});
+
+
 app.get('/api/fpl/picks/:teamId/:gw', async (req, res) => {
   noStore(res);
   if (!validTeamId(req.params.teamId) || !/^\d+$/.test(req.params.gw)) return res.status(400).json({ error: 'Invalid Team ID or gameweek.' });

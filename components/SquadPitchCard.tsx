@@ -81,15 +81,15 @@ export default function SquadPitchCard({
   const fdr = primaryFixture?.difficulty || 3;
   const fdrColor = fdr <= 2 ? '#34ff8c' : fdr === 3 ? '#f6c343' : '#ffb4ab';
 
-  // Points color styling
+  // Points color styling: green >=7, yellow 2-6, red 0-1
   const pts = points ?? (player?.total_points || 0);
   const isHigh = pts >= 7;
-  const isMed = pts >= 3 && pts < 7;
-  const isLow = pts < 3;
+  const isMed = pts >= 2 && pts < 7;
+  const isLow = pts < 2;
 
-  const ptsBg = isHigh ? '#34ff8c' : isMed ? '#333535' : 'rgba(147, 0, 10, 0.7)';
-  const ptsColor = isHigh ? '#003919' : isMed ? '#e2e2e2' : '#ffdad6';
-  const stripColor = isHigh ? '#34ff8c' : isMed ? '#e5b800' : '#ffb4ab';
+  const ptsBg = isHigh ? '#34ff8c' : isMed ? '#f6c343' : 'rgba(147, 0, 10, 0.7)';
+  const ptsColor = isHigh ? '#003919' : isMed ? '#281a00' : '#ffdad6';
+  const stripColor = isHigh ? '#34ff8c' : isMed ? '#f6c343' : '#ffb4ab';
 
   return (
     <TouchableOpacity
